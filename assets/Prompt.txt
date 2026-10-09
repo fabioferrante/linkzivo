@@ -1,0 +1,1513 @@
+Você é um engenheiro de software sênior, arquiteto de sistemas SaaS, especialista em segurança web, tracking/attribution e plataformas de marketing digital.
+
+Crie uma plataforma SaaS profissional de gerenciamento de URLs, Smart Links, QR Codes, tracking e campanhas, com foco especial em criadores de conteúdo, afiliados, produtores digitais, pequenos negócios e profissionais de marketing.
+
+O produto deve ser inspirado conceitualmente em categorias de produtos como Bitly, Rebrandly, Short.io e Dub, mas possuir identidade visual, arquitetura, código e experiência próprios.
+
+A plataforma NÃO deve ser tratada simplesmente como um encurtador de URLs.
+
+O conceito central do produto é:
+
+ENCURTAR
+→ ORGANIZAR
+→ RASTREAR
+→ MEDIR
+→ ATRIBUIR
+→ OTIMIZAR
+
+O encurtador é a porta de entrada. O objetivo comercial é transformar a plataforma em um sistema de gerenciamento de links e campanhas, especialmente poderoso para afiliados.
+
+==================================================
+
+1. OBJETIVO PRINCIPAL
+   ==================================================
+
+Permitir que um usuário:
+
+1. Cole uma URL.
+2. Gere um link curto.
+3. Gere um QR Code dinâmico.
+4. Edite o destino posteriormente sem alterar o link curto.
+5. Organize links em produtos, campanhas, pastas e tags.
+6. Crie links diferentes para diferentes canais.
+7. Gere parâmetros UTM automaticamente.
+8. Acompanhe cliques e outras métricas.
+9. Quando houver integração de conversão disponível, associe cliques a conversões.
+10. Acompanhe desempenho por produto, oferta, campanha e canal.
+11. Utilize Smart Links com regras de redirecionamento.
+12. Utilize recursos avançados conforme o plano contratado.
+
+Exemplo:
+
+URL original:
+
+https://www.exemplo.com/produtos/promocao-black-friday/produto?id=123456
+
+Link curto:
+
+https://DOMINIO/abc123
+
+Se o usuário alterar o destino:
+
+https://www.exemplo.com/promocao-natal
+
+o link curto deverá continuar:
+
+https://DOMINIO/abc123
+
+O QR Code associado também deverá continuar funcionando.
+
+==================================================
+2. CONCEITO FUNDAMENTAL: SMART LINK
+===================================
+
+A arquitetura deve considerar o link curto como um objeto inteligente.
+
+Um Smart Link pode conter:
+
+* domínio
+* slug
+* destino
+* produto
+* oferta
+* campanha
+* canal
+* parâmetros UTM
+* regras
+* tracking
+* QR Code
+* analytics
+* conversões
+* status
+* expiração
+
+O redirect deve ser independente do destino final.
+
+Estrutura conceitual:
+
+Smart Link
+|
+├── Product
+├── Offer
+├── Campaign
+├── Channel
+├── Tracking
+├── Rules
+├── QR Code
+├── Clicks
+└── Conversions
+
+Não implementar todos os recursos avançados imediatamente, mas criar uma arquitetura que permita sua implementação futura sem reconstruir o sistema.
+
+==================================================
+3. PÚBLICO-ALVO
+===============
+
+Público primário:
+
+* afiliados
+* criadores de conteúdo
+* produtores digitais
+* gestores de tráfego
+* social media
+* pequenos negócios
+* profissionais de marketing
+* agências
+
+Público secundário:
+
+* usuários que simplesmente desejam encurtar URLs
+* empresas que desejam links de marca
+* usuários que desejam QR Codes dinâmicos
+
+A experiência inicial deve continuar simples para quem deseja apenas encurtar uma URL.
+
+==================================================
+4. FLUXO PRINCIPAL
+==================
+
+Página inicial:
+
+Campo:
+
+[ Cole sua URL aqui ]
+
+Botão:
+
+[ ENCURTAR ]
+
+Após gerar:
+
+URL curta:
+https://DOMINIO/abc123
+
+Ações:
+
+[ Copiar ]
+
+[ QR Code ]
+
+[ Personalizar ]
+
+[ Analytics ]
+
+[ Editar destino ]
+
+Para usuário autenticado, salvar automaticamente o link na conta.
+
+==================================================
+5. PRODUTOS E OFERTAS
+=====================
+
+Criar uma estrutura preparada para afiliados.
+
+Entidade:
+
+Product
+
+Campos conceituais:
+
+* id
+* owner_id
+* name
+* description
+* category
+* brand
+* image
+* platform
+* external_product_id
+* status
+* created_at
+* updated_at
+
+Entidade:
+
+Offer
+
+Campos conceituais:
+
+* id
+* product_id
+* owner_id
+* name
+* affiliate_url
+* commission_type
+* commission_value
+* currency
+* status
+* start_at
+* end_at
+* created_at
+* updated_at
+
+Não assumir que todos os produtos possuem comissão.
+
+A plataforma também deve funcionar para URLs comerciais normais.
+
+O campo de comissão pode ser opcional.
+
+==================================================
+6. PLATAFORMAS DE AFILIADOS
+===========================
+
+Criar arquitetura abstrata para Affiliate Network.
+
+Exemplos futuros:
+
+* Hotmart
+* Kiwify
+* Eduzz
+* Monetizze
+* Amazon Associates
+* Shopee
+* AliExpress
+* outras redes
+
+Não criar dependência direta do MVP em nenhuma plataforma.
+
+Criar uma camada de integração para permitir posteriormente:
+
+* importação de produtos
+* importação de ofertas
+* conversões
+* comissões
+* postbacks
+* APIs externas
+
+Não inventar APIs de plataformas.
+
+Somente implementar integrações quando documentação oficial e credenciais apropriadas estiverem disponíveis.
+
+==================================================
+7. CAMPANHAS
+============
+
+Campanha deve ser uma entidade nativa.
+
+Campos conceituais:
+
+* id
+* owner_id
+* name
+* description
+* product_id
+* offer_id
+* start_at
+* end_at
+* status
+* budget opcional
+* created_at
+* updated_at
+
+Exemplo:
+
+Campanha:
+
+Black Friday 2026
+
+Dentro dela:
+
+Instagram Story
+Instagram Bio
+TikTok
+YouTube
+WhatsApp
+Blog
+
+Cada canal poderá possuir um Smart Link diferente.
+
+==================================================
+8. CANAIS
+=========
+
+Preparar estrutura para canais:
+
+* Instagram
+* TikTok
+* YouTube
+* Facebook
+* WhatsApp
+* Telegram
+* Blog
+* Email
+* Google Ads
+* Meta Ads
+* QR Code
+* Direct
+* Custom
+
+Não depender exclusivamente de uma lista fixa.
+
+Permitir canal personalizado.
+
+==================================================
+9. UTM BUILDER
+==============
+
+Criar ferramenta visual para geração automática de UTM.
+
+Campos:
+
+utm_source
+utm_medium
+utm_campaign
+utm_term
+utm_content
+
+Exemplo:
+
+Produto:
+Curso X
+
+Campanha:
+Black Friday
+
+Canal:
+Instagram
+
+Tipo:
+Story
+
+Gerar automaticamente:
+
+utm_source=instagram
+utm_medium=social
+utm_campaign=black-friday
+utm_content=story
+
+O usuário não deve precisar montar URLs UTM manualmente.
+
+Permitir templates UTM.
+
+Exemplo:
+
+Template:
+
+Social Organic
+
+Source:
+{{channel}}
+
+Medium:
+social
+
+Campaign:
+{{campaign}}
+
+Content:
+{{content}}
+
+==================================================
+10. CLONAGEM DE CAMPANHAS E LINKS
+=================================
+
+Implementar futuramente:
+
+Duplicar link.
+
+Duplicar campanha.
+
+Duplicar campanha com todos os links.
+
+Exemplo:
+
+Campanha original:
+
+Black Friday
+
+Duplicar:
+
+Black Friday Instagram
+
+Black Friday TikTok
+
+O sistema deve gerar novos links mantendo o produto/oferta associado, mas criando tracking independente.
+
+==================================================
+11. LINK INTELIGENTE
+====================
+
+Permitir diferentes tipos de destino:
+
+1. URL fixa
+2. Produto
+3. Oferta
+4. Campanha
+5. Rotação de ofertas
+6. Smart Redirect
+
+Exemplo:
+
+https://DOMINIO/produto
+
+Pode redirecionar para:
+
+Oferta atual do produto.
+
+Se o usuário alterar a oferta, o link permanece igual.
+
+==================================================
+12. SMART REDIRECT
+==================
+
+Preparar sistema de regras.
+
+Possíveis condições futuras:
+
+* dispositivo
+* sistema operacional
+* país
+* região
+* idioma
+* campanha
+* horário
+* data
+* percentual de tráfego
+* parâmetros da URL
+
+Exemplo:
+
+Android → Google Play
+iOS → App Store
+Desktop → Site
+
+Outro exemplo:
+
+Brasil → Oferta BR
+Portugal → Oferta PT
+
+As regras devem ser processadas de maneira eficiente.
+
+Não executar lógica pesada no endpoint público.
+
+==================================================
+13. ROTAÇÃO DE OFERTAS
+======================
+
+Preparar arquitetura para permitir:
+
+Oferta A: 50%
+Oferta B: 30%
+Oferta C: 20%
+
+Estratégias futuras:
+
+* percentual
+* aleatória
+* round robin
+* melhor desempenho
+* oferta ativa
+* fallback
+
+Não implementar algoritmos complexos no MVP.
+
+Criar interfaces e modelos de dados preparados para evolução.
+
+==================================================
+14. FALLBACK
+============
+
+Preparar suporte a:
+
+Destino principal
+
+Destino alternativo
+
+Exemplo:
+
+Oferta principal:
+Produto A
+
+Fallback:
+Produto B
+
+O sistema deve permitir estratégias de fallback quando uma oferta for manualmente desativada ou considerada indisponível.
+
+Não realizar requisições arbitrárias server-side a URLs externas apenas para verificar disponibilidade.
+
+Qualquer mecanismo automático de health check deve possuir controles rigorosos contra SSRF.
+
+==================================================
+15. TRACKING
+============
+
+Registrar eventos:
+
+* click
+* QR scan
+* redirect
+* conversion
+
+Cada clique deve possuir um identificador técnico quando necessário para atribuição.
+
+Exemplo:
+
+click_id:
+
+8A72F91C
+
+Associar:
+
+Click
+→ Smart Link
+→ Campaign
+→ Product
+→ Offer
+→ Channel
+
+Quando uma conversão for recebida por integração compatível:
+
+Click
+→ Conversion
+→ Commission
+
+==================================================
+16. CONVERSÕES
+==============
+
+Criar entidade Conversion.
+
+Campos conceituais:
+
+* id
+* click_id
+* link_id
+* campaign_id
+* product_id
+* offer_id
+* external_conversion_id
+* conversion_type
+* value
+* commission
+* currency
+* timestamp
+* source
+* status
+
+Permitir futuramente:
+
+* API
+* webhook
+* postback
+* integração com redes de afiliados
+
+Não afirmar que uma venda ocorreu somente porque houve um clique.
+
+Cliques e conversões devem ser entidades distintas.
+
+==================================================
+17. COMISSÕES
+=============
+
+Preparar estrutura para:
+
+* comissão fixa
+* comissão percentual
+* moeda
+* valor estimado
+* valor confirmado
+
+Dashboard futuro:
+
+Cliques
+→ Conversões
+→ Comissão estimada
+→ Comissão confirmada
+
+Não tratar comissão estimada como receita financeira confirmada.
+
+==================================================
+18. DASHBOARD PARA AFILIADOS
+============================
+
+Criar dashboard específico.
+
+Exemplo:
+
+Campanha:
+Black Friday
+
+Cliques:
+12.493
+
+Conversões:
+183
+
+Taxa de conversão:
+1,46%
+
+Comissão estimada:
+R$ 8.931
+
+Também mostrar:
+
+Top produtos
+Top campanhas
+Top canais
+Top links
+
+==================================================
+19. COMPARAÇÃO DE CANAIS
+========================
+
+Permitir:
+
+Instagram
+5.812 cliques
+83 conversões
+
+TikTok
+3.921 cliques
+61 conversões
+
+YouTube
+1.842 cliques
+29 conversões
+
+WhatsApp
+918 cliques
+10 conversões
+
+Exibir:
+
+* cliques
+* conversões
+* CTR quando aplicável
+* taxa de conversão
+* comissão
+* desempenho temporal
+
+==================================================
+20. QR CODES
+============
+
+Todo Smart Link pode possuir QR Code.
+
+QR Code deve apontar para:
+
+https://DOMINIO/abc123
+
+Nunca diretamente para a URL final.
+
+Permitir:
+
+* PNG
+* SVG
+* tamanho
+* margem
+* cor
+* fundo
+* logo
+* estilo
+* personalização
+
+QR Code deve continuar funcionando quando o destino mudar.
+
+Registrar QR scan separadamente quando tecnicamente possível.
+
+==================================================
+21. QR CODE PARA MARKETING OFFLINE
+==================================
+
+Preparar recursos para uso em:
+
+* cartazes
+* flyers
+* embalagens
+* cartões
+* eventos
+* materiais impressos
+
+Permitir identificar campanha:
+
+QR:
+Produto X
+Campanha:
+Evento Curitiba 2026
+
+Analytics:
+
+QR scans
+→ visitas
+→ conversões
+
+==================================================
+22. ANALYTICS
+=============
+
+Registrar de maneira eficiente:
+
+* cliques
+* scans
+* país
+* região quando disponível
+* dispositivo
+* sistema operacional
+* navegador
+* referer
+* data
+* hora
+* campanha
+* produto
+* oferta
+* canal
+
+Não armazenar dados pessoais desnecessários.
+
+Não exibir IP bruto para usuários.
+
+Aplicar retenção de dados conforme plano.
+
+==================================================
+23. LINK VAULT
+==============
+
+Criar biblioteca de produtos/ofertas.
+
+Exemplo:
+
+Curso de Marketing
+
+Hotmart
+
+Comissão:
+R$97
+
+Campanhas:
+12
+
+Cliques:
+38.291
+
+Conversões:
+823
+
+Isso permite ao usuário cadastrar o produto uma vez e criar múltiplas campanhas.
+
+==================================================
+24. ORGANIZAÇÃO
+===============
+
+Permitir:
+
+* pastas
+* tags
+* produtos
+* ofertas
+* campanhas
+* canais
+
+Exemplo:
+
+📁 Black Friday
+
+Instagram Story
+TikTok
+YouTube
+WhatsApp
+
+📁 Produto X
+
+Campanha A
+Campanha B
+
+==================================================
+25. LINK PERSONALIZADO
+======================
+
+Permitir:
+
+https://DOMINIO/produto-x
+
+O slug deve ser estável.
+
+Alterar:
+
+destination_url
+
+NÃO deve alterar:
+
+domain + slug
+
+==================================================
+26. DOMÍNIOS PERSONALIZADOS
+===========================
+
+Preparar suporte para:
+
+links.cliente.com/produto
+
+Implementar:
+
+* cadastro
+* validação
+* DNS
+* CNAME
+* propriedade
+* SSL
+* status
+
+Identificar corretamente:
+
+host + slug
+
+antes de resolver o link.
+
+==================================================
+27. AUTENTICAÇÃO
+================
+
+Implementar:
+
+* cadastro
+* login
+* logout
+* confirmação de e-mail
+* recuperação de senha
+* alteração de senha
+* alteração de e-mail
+* gerenciamento de sessões
+* logout remoto
+* exclusão de conta
+* exportação de dados
+
+Preparar:
+
+* MFA
+* passkeys
+
+Nunca armazenar senhas em texto puro.
+
+Não armazenar tokens sensíveis em localStorage.
+
+Usar cookies seguros:
+
+HttpOnly
+Secure
+SameSite apropriado.
+
+==================================================
+28. AUTORIZAÇÃO
+===============
+
+Cada recurso deve possuir owner_id ou mecanismo equivalente de autorização.
+
+Usuário A nunca pode:
+
+* visualizar links do usuário B
+* editar links do usuário B
+* visualizar analytics do usuário B
+* visualizar campanhas do usuário B
+* acessar QR Codes privados do usuário B
+
+Proteger contra IDOR.
+
+Não confiar em IDs enviados pelo frontend.
+
+==================================================
+29. ASSINATURAS
+===============
+
+Planos iniciais:
+
+FREE
+CREATOR / AFFILIATE
+PRO
+AGENCY
+
+FREE:
+
+* encurtamento
+* QR básico
+* analytics básico
+* limite de links
+
+CREATOR / AFFILIATE:
+
+* campanhas
+* UTM Builder
+* produtos
+* ofertas
+* analytics avançado
+* QR avançado
+* Smart Links
+* domínios conforme limite
+
+PRO:
+
+* API
+* postbacks
+* conversões
+* regras avançadas
+* rotação
+* A/B testing
+* mais domínios
+* maior retenção
+
+AGENCY:
+
+* workspaces
+* equipes
+* clientes
+* permissões
+* white-label
+* relatórios
+* limites elevados
+
+Não codificar regras de plano espalhadas pelo sistema.
+
+Criar sistema centralizado de entitlements.
+
+==================================================
+30. BILLING
+===========
+
+Usar Stripe inicialmente.
+
+Implementar:
+
+* checkout
+* assinatura mensal
+* assinatura anual
+* upgrade
+* downgrade
+* cancelamento
+* reativação
+* falha de pagamento
+* invoices
+* customer portal
+
+Sincronizar assinatura através de webhooks.
+
+Validar assinatura dos webhooks.
+
+Implementar idempotência.
+
+Tratar eventos duplicados.
+
+Tratar eventos fora de ordem.
+
+Nunca confiar somente no retorno do checkout.
+
+==================================================
+31. API
+=======
+
+Preparar:
+
+/api/v1/
+
+Endpoints futuros:
+
+POST /links
+GET /links
+GET /links/{id}
+PATCH /links/{id}
+DELETE /links/{id}
+
+Analytics.
+
+QR Codes.
+
+Campaigns.
+
+Products.
+
+Conversions.
+
+API keys devem possuir:
+
+* escopos
+* limites
+* revogação
+* armazenamento seguro
+* visualização única do segredo
+
+==================================================
+32. WEBHOOKS E POSTBACKS
+========================
+
+Preparar arquitetura para receber eventos externos.
+
+Exemplo:
+
+Affiliate Network
+→ POSTBACK
+→ Backend
+→ Conversion
+→ Campaign
+→ Product
+→ Click
+
+Validar:
+
+* assinatura
+* origem
+* idempotência
+* timestamp
+* replay
+* external_conversion_id
+
+Nunca confiar cegamente em payload externo.
+
+==================================================
+33. SEGURANÇA DE URL
+====================
+
+Aceitar inicialmente:
+
+http://
+https://
+
+Rejeitar:
+
+javascript:
+data:
+file:
+outros esquemas perigosos.
+
+Proteger contra:
+
+* SSRF
+* localhost
+* loopback
+* IPs privados
+* metadata endpoints
+* URLs malformadas
+
+Não fazer fetch server-side arbitrário.
+
+==================================================
+34. ANTI-ABUSO
+==============
+
+Como o produto é um encurtador público, implementar:
+
+* rate limiting
+* limites por IP
+* limites por usuário
+* limites por plano
+* detecção de comportamento anômalo
+* denúncia
+* blacklist
+* suspensão
+* bloqueio administrativo
+
+Preparar integração futura com serviços de reputation/safe browsing quando apropriado.
+
+==================================================
+35. ADMIN
+=========
+
+Criar painel administrativo.
+
+Permitir:
+
+* usuários
+* links
+* campanhas
+* produtos
+* ofertas
+* assinaturas
+* denúncias
+* eventos de segurança
+* métricas
+* planos
+* limites
+* bloqueios
+
+Ações administrativas devem gerar audit log.
+
+==================================================
+36. AUDIT LOG
+=============
+
+Registrar:
+
+* login
+* logout
+* criação
+* edição
+* exclusão
+* alteração de destino
+* alteração de slug
+* criação de campanha
+* alteração de oferta
+* alteração de assinatura
+* alteração de domínio
+* alteração de permissões
+* ações administrativas
+
+Nunca registrar:
+
+* senhas
+* tokens
+* API keys
+* secrets
+
+==================================================
+37. DATABASE
+============
+
+Utilizar PostgreSQL.
+
+Modelo conceitual mínimo:
+
+users
+sessions
+plans
+subscriptions
+entitlements
+
+domains
+
+links
+link_history
+
+products
+offers
+campaigns
+channels
+
+qr_codes
+
+clicks
+conversions
+
+utm_templates
+
+api_keys
+webhooks
+
+audit_logs
+security_events
+abuse_reports
+
+Criar índices apropriados.
+
+Garantir integridade referencial.
+
+Evitar N+1.
+
+Usar paginação.
+
+Preparar particionamento ou estratégia equivalente para tabelas de analytics quando necessário.
+
+==================================================
+38. REDIRECT PERFORMANCE
+========================
+
+O endpoint público deve ser extremamente rápido.
+
+Fluxo:
+
+request
+→ domínio + slug
+→ cache/database
+→ regras mínimas
+→ registro assíncrono de analytics
+→ redirect
+
+Analytics não devem bloquear o redirect.
+
+Considerar Redis/cache.
+
+==================================================
+39. PRIVACIDADE / LGPD
+======================
+
+Aplicar minimização de dados.
+
+Criar:
+
+* Política de Privacidade
+* Termos de Uso
+* Política de Cookies
+* Política de Abuso
+
+Preparar:
+
+* exportação
+* exclusão
+* retenção
+* anonimização quando apropriado
+
+Não coletar dados pessoais desnecessários.
+
+==================================================
+40. OBSERVABILIDADE
+===================
+
+Implementar:
+
+* logs estruturados
+* health check
+* readiness
+* métricas
+* error tracking
+* audit logs
+
+Nunca registrar secrets.
+
+==================================================
+41. BACKUPS
+===========
+
+Preparar:
+
+* backup automático
+* retenção
+* restore
+* migrations versionadas
+* testes de recuperação
+
+==================================================
+42. UI/UX
+=========
+
+A interface deve ser:
+
+* moderna
+* limpa
+* profissional
+* rápida
+* responsiva
+* acessível
+
+Não copiar visualmente Bitly.
+
+Evitar:
+
+* excesso de cards
+* gradientes desnecessários
+* sombras exageradas
+* decoração sem função
+
+A sensação deve ser:
+
+"ferramenta profissional simples e poderosa".
+
+==================================================
+43. DASHBOARD
+=============
+
+Mostrar:
+
+* links
+* cliques
+* QR scans
+* conversões
+* receita/comissão estimada quando disponível
+* campanhas
+* produtos
+* links recentes
+* melhores campanhas
+* melhores canais
+
+Criar visualização específica para afiliados sem prejudicar usuários comuns.
+
+==================================================
+44. TESTES
+==========
+
+Criar testes unitários, integração e segurança.
+
+Testar obrigatoriamente:
+
+cadastro
+login
+autorização
+criação de link
+slug collision
+redirect
+edição de destino
+QR Code
+analytics
+campanha
+produto
+oferta
+UTM
+conversão
+entitlements
+billing
+webhooks
+rate limiting
+API
+IDOR
+expiração
+suspensão
+
+Fluxo crítico:
+
+cadastro
+→ login
+→ criar produto
+→ criar oferta
+→ criar campanha
+→ criar link
+→ gerar QR
+→ acessar link
+→ registrar click
+→ alterar destino
+→ acessar novamente
+→ confirmar novo destino
+→ receber conversão
+→ associar conversão ao click/campanha/produto.
+
+==================================================
+45. ROADMAP
+===========
+
+NÃO tentar implementar tudo de uma vez.
+
+FASE 1 — MVP
+
+Implementar:
+
+* landing page
+* autenticação
+* usuários
+* encurtamento
+* slug
+* redirect
+* edição do destino
+* QR Code
+* dashboard
+* analytics básico
+* planos
+* Stripe
+* segurança
+* rate limiting
+* admin básico
+
+FASE 2 — AFFILIATE CORE
+
+Implementar:
+
+* Products
+* Offers
+* Campaigns
+* Channels
+* UTM Builder
+* Link Vault
+* duplicação de campanhas
+* analytics por campanha
+* analytics por canal
+
+FASE 3 — PERFORMANCE
+
+Implementar:
+
+* conversions
+* postbacks
+* API
+* Smart Redirect
+* domínios personalizados
+* analytics avançado
+* QR analytics
+
+FASE 4 — ADVANCED
+
+Implementar:
+
+* rotação de ofertas
+* A/B testing
+* fallback
+* device routing
+* geo routing
+* deep links
+* equipes
+* workspaces
+* white-label
+* relatórios
+
+==================================================
+46. ARQUITETURA DE DOMÍNIO
+==========================
+
+O sistema deve separar claramente:
+
+User
+
+Product
+
+Offer
+
+Campaign
+
+Channel
+
+Smart Link
+
+Click
+
+Conversion
+
+Commission
+
+QR Code
+
+Subscription
+
+Entitlement
+
+Isso é fundamental.
+
+Não criar uma tabela "links" contendo toda a lógica do produto.
+
+O link deve relacionar-se com os demais objetos.
+
+==================================================
+47. POSICIONAMENTO DO PRODUTO
+=============================
+
+O produto não deve ser apresentado somente como:
+
+"Encurtador de URLs".
+
+O posicionamento deve permitir:
+
+"Gerencie, rastreie e otimize seus links e campanhas."
+
+Para afiliados:
+
+"Todos os seus produtos, campanhas e links de afiliado em um só lugar."
+
+O usuário deve conseguir começar simplesmente encurtando uma URL e descobrir progressivamente os recursos avançados.
+
+==================================================
+48. CRITÉRIO DE CONCLUSÃO
+=========================
+
+Não considerar o projeto pronto apenas porque a interface está funcionando.
+
+Considerar o MVP concluído quando:
+
+* usuário consegue criar conta
+* autenticar
+* criar link
+* acessar link
+* alterar destino mantendo slug
+* gerar QR
+* QR continuar funcionando após alteração
+* analytics funcionar
+* planos funcionarem
+* Stripe sincronizar assinatura
+* autorização impedir acesso cruzado
+* rate limiting funcionar
+* logs funcionarem
+* migrations funcionarem
+* testes principais passarem
+* aplicação estiver preparada para produção
+
+==================================================
+49. PRINCÍPIOS DE DESENVOLVIMENTO
+=================================
+
+Prioridade:
+
+1. Segurança
+2. Integridade dos dados
+3. Arquitetura
+4. Simplicidade
+5. Performance
+6. UX
+7. Recursos adicionais
+
+Não implementar complexidade sem necessidade.
+
+Não criar abstrações apenas por estética.
+
+Não criar mocks para funcionalidades que precisam funcionar em produção.
+
+Não inventar APIs externas.
+
+Separar integrações externas da lógica de negócio.
+
+Usar environment variables para secrets.
+
+Criar .env.example sem secrets.
+
+Preparar development, staging e production.
+
+Antes de escrever grande quantidade de código, analisar a arquitetura e apresentar:
+
+* stack escolhida
+* justificativa
+* estrutura de diretórios
+* modelo de dados
+* fluxos principais
+* estratégia de autenticação
+* estratégia de billing
+* estratégia de analytics
+* estratégia de segurança
+* roadmap de implementação
+
+Depois implementar incrementalmente.
+
+A aplicação deve nascer como um SaaS real, mas com MVP controlado.
+
+O diferencial estratégico é transformar o encurtador em uma plataforma de Smart Links e tracking para marketing e afiliados, sem impedir que usuários comuns utilizem o produto de maneira simples.
+
+
+Organize de acordo com [doe.md](file;file:///d%3A/dev/projetos/antigravity/linkzivo/.agents/rules/doe.md) 

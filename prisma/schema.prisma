@@ -1,0 +1,308 @@
+// Prisma Schema para a Plataforma SaaS Linkzivo
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  passwordHash  String
+  avatarUrl     String?
+  role          String    @default("USER") // USER, ADMIN
+  status        String    @default("ACTIVE") // ACTIVE, SUSPENDED, PENDING
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspaces        WorkspaceMember[]
+  createdLinks      SmartLink[]
+  auditLogs         AuditLog[]
+}
+
+model Workspace {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  plan        String    @default("FREE") // FREE, CREATOR, PRO, AGENCY
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  members       WorkspaceMember[]
+  products      Product[]
+  campaigns     Campaign[]
+  channels      Channel[]
+  smartLinks    SmartLink[]
+  subscriptions Subscription[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        String    @default("OWNER") // OWNER, ADMIN, MEMBER
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+}
+
+model Product {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  name              String
+  description       String?
+  category          String?
+  brand             String?
+  imageUrl          String?
+  platform          String?   // Hotmart, Kiwify, Eduzz, Monetizze, Amazon, etc.
+  externalProductId String?
+  status            String    @default("ACTIVE") // ACTIVE, ARCHIVED
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  offers            Offer[]
+  campaigns         Campaign[]
+  smartLinks        SmartLink[]
+  conversions       Conversion[]
+}
+
+model Offer {
+  id              String    @id @default(cuid())
+  productId       String
+  name            String
+  affiliateUrl    String
+  commissionType  String?   // PERCENTAGE, FIXED
+  commissionValue Float?
+  currency        String    @default("BRL")
+  status          String    @default("ACTIVE") // ACTIVE, INACTIVE, EXPIRED
+  startAt         DateTime?
+  endAt           DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  campaigns       Campaign[]
+  smartLinks      SmartLink[]
+  conversions     Conversion[]
+}
+
+model Campaign {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  productId   String?
+  offerId     String?
+  status      String    @default("ACTIVE") // ACTIVE, PAUSED, ENDED
+  budget      Float?
+  startAt     DateTime?
+  endAt       DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  offer       Offer?    @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  smartLinks  SmartLink[]
+  conversions Conversion[]
+}
+
+model Channel {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String    // Instagram, TikTok, YouTube, WhatsApp, Blog, Meta Ads, Custom
+  slug        String
+  icon        String?
+  color       String?
+  isCustom    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  smartLinks  SmartLink[]
+}
+
+model SmartLink {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  creatorId       String?
+  title           String?
+  slug            String    @unique
+  destinationUrl  String
+  domain          String?   // null para domínio padrão do sistema
+  
+  // Relacionamentos opcionais de campanha/afiliado
+  productId       String?
+  offerId         String?
+  campaignId      String?
+  channelId       String?
+
+  // UTM Parameters
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmTerm         String?
+  utmContent      String?
+
+  // Flags e regras
+  isSmartRouting  Boolean   @default(false)
+  fallbackUrl     String?
+  status          String    @default("ACTIVE") // ACTIVE, PAUSED, SUSPENDED, EXPIRED
+  expiresAt       DateTime?
+
+  // Métricas agregadas cacheadas
+  clickCount      Int       @default(0)
+  qrScanCount     Int       @default(0)
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator         User?     @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+  product         Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  offer           Offer?    @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  campaign        Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  channel         Channel?  @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  qrCode          QrCode?
+  rules           SmartRule[]
+  history         LinkHistory[]
+  clicks          Click[]
+  conversions     Conversion[]
+
+  @@index([slug])
+  @@index([workspaceId])
+}
+
+model LinkHistory {
+  id              String    @id @default(cuid())
+  smartLinkId     String
+  previousUrl     String
+  newUrl          String
+  changedByUserId String?
+  changedAt       DateTime  @default(now())
+
+  smartLink       SmartLink @relation(fields: [smartLinkId], references: [id], onDelete: Cascade)
+}
+
+model SmartRule {
+  id              String    @id @default(cuid())
+  smartLinkId     String
+  ruleType        String    // DEVICE, OS, COUNTRY, LANGUAGE, PERCENTAGE, SCHEDULE
+  conditionValue  String    // ex: "iOS", "Android", "BR", "50"
+  targetUrl       String
+  priority        Int       @default(0)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+
+  smartLink       SmartLink @relation(fields: [smartLinkId], references: [id], onDelete: Cascade)
+}
+
+model QrCode {
+  id              String    @id @default(cuid())
+  smartLinkId     String    @unique
+  fgColor         String    @default("#151724")
+  bgColor         String    @default("#FFFFFF")
+  style           String    @default("SQUARES") // SQUARES, DOTS, ROUNDED
+  logoUrl         String?
+  scanCount       Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  smartLink       SmartLink @relation(fields: [smartLinkId], references: [id], onDelete: Cascade)
+}
+
+model Click {
+  id          String    @id // click_id criptograficamente gerado para atribuição
+  smartLinkId String
+  workspaceId String
+  campaignId  String?
+  productId   String?
+  offerId     String?
+  channelId   String?
+
+  country     String?
+  city        String?
+  device      String?   // Desktop, Mobile, Tablet
+  os          String?   // Windows, macOS, iOS, Android, Linux
+  browser     String?   // Chrome, Safari, Firefox, Edge
+  referer     String?
+  isQrScan    Boolean   @default(false)
+  timestamp   DateTime  @default(now())
+
+  smartLink   SmartLink @relation(fields: [smartLinkId], references: [id], onDelete: Cascade)
+  conversions Conversion[]
+
+  @@index([smartLinkId])
+  @@index([timestamp])
+}
+
+model Conversion {
+  id                    String    @id @default(cuid())
+  clickId               String?
+  smartLinkId           String
+  campaignId            String?
+  productId             String?
+  offerId               String?
+  externalConversionId  String?   @unique
+  conversionType        String    @default("SALE") // SALE, LEAD, SIGNUP
+  amount                Float     @default(0.0)
+  commissionAmount      Float     @default(0.0)
+  currency              String    @default("BRL")
+  status                String    @default("CONFIRMED") // ESTIMATED, CONFIRMED, REFUNDED
+  rawPayload            String?
+  timestamp             DateTime  @default(now())
+
+  click                 Click?     @relation(fields: [clickId], references: [id], onDelete: SetNull)
+  smartLink             SmartLink  @relation(fields: [smartLinkId], references: [id], onDelete: Cascade)
+  campaign              Campaign?  @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  product               Product?   @relation(fields: [productId], references: [id], onDelete: SetNull)
+  offer                 Offer?     @relation(fields: [offerId], references: [id], onDelete: SetNull)
+}
+
+model Subscription {
+  id                  String    @id @default(cuid())
+  workspaceId         String
+  stripeCustomerId    String?
+  stripeSubscriptionId String?  @unique
+  plan                String    @default("FREE")
+  status              String    @default("ACTIVE") // ACTIVE, PAST_DUE, CANCELED
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  cancelAtPeriodEnd   Boolean   @default(false)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  workspace           Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  userId      String?
+  action      String    // LINK_CREATED, DESTINATION_UPDATED, CAMPAIGN_CREATED, etc.
+  entityType  String    // LINK, CAMPAIGN, PRODUCT, OFFER, USER
+  entityId    String?
+  detailsJson String?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model AbuseReport {
+  id          String    @id @default(cuid())
+  smartLinkId String?
+  reportedUrl String
+  reason      String    // PHISHING, MALWARE, SPAM, OTHER
+  reporterIp  String?
+  status      String    @default("PENDING") // PENDING, RESOLVED, DISMISSED
+  createdAt   DateTime  @default(now())
+}
