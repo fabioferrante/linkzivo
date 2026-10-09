@@ -24,7 +24,7 @@ if sys.stdout.encoding != 'utf-8':
     except Exception:
         pass
 
-BASE_URL = "http://localhost:3000"
+BASE_URL = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://localhost:3000"
 
 
 def log_step(step_num, title):
