@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Link2,
   Copy,
@@ -383,13 +384,13 @@ export function ShortenerForm({ onLinkCreated }: { onLinkCreated?: () => void })
                   <span>Editar Destino</span>
                 </button>
 
-                <a
+                <Link
                   href="/dashboard"
                   className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-medium rounded-lg border border-slate-800 transition-colors cursor-pointer"
                 >
                   <BarChart2 className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Analytics</span>
-                </a>
+                </Link>
               </div>
             </div>
           </div>

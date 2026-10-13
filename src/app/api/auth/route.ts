@@ -11,6 +11,11 @@ export async function GET() {
   return NextResponse.json({ authenticated: true, user: session });
 }
 
+export async function DELETE() {
+  await destroySessionCookie();
+  return NextResponse.json({ success: true, message: "Sessão encerrada com sucesso." });
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { action, email, password, name } = await request.json();

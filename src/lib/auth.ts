@@ -168,9 +168,17 @@ export async function createSessionCookie(user: SessionUser) {
 }
 
 /**
- * Remove o cookie de sessão.
+ * Remove o cookie de sessão de forma explícita com expiração imediata.
  */
 export async function destroySessionCookie() {
   const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+    expires: new Date(0),
+  });
   cookieStore.delete(SESSION_COOKIE_NAME);
 }

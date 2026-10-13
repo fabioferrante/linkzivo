@@ -27,6 +27,7 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
     include: {
       qrCode: true,
+      history: { orderBy: { changedAt: "desc" } },
       product: { select: { id: true, name: true } },
       campaign: { select: { id: true, name: true } },
       channel: { select: { id: true, name: true } },
@@ -123,7 +124,8 @@ export async function POST(request: NextRequest) {
     // 4. Criação atômica do SmartLink e do seu QR Code associado
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const shortUrl = `${appUrl}/${slug}`;
-    const qrDataUrl = await generateQrCodeDataUrl(shortUrl, {
+    const qrTargetUrl = `${appUrl}/${slug}?src=qr`;
+    const qrDataUrl = await generateQrCodeDataUrl(qrTargetUrl, {
       fgColor: "#151724",
       bgColor: "#FFFFFF",
     });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
@@ -33,7 +33,7 @@ export default function Home() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [activeFeatureTab, setActiveFeatureTab] = useState<"routing" | "attribution" | "dynamicQr">("routing");
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const res = await fetch("/api/auth");
       const data = await res.json();
@@ -45,10 +45,28 @@ export default function Home() {
     } catch {
       setUser(null);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    checkAuth();
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth");
+        const data = await res.json();
+        if (active) {
+          if (data.authenticated && data.user) {
+            setUser(data.user);
+          } else {
+            setUser(null);
+          }
+        }
+      } catch {
+        if (active) setUser(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, []);
 
   return (

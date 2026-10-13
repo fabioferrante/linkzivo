@@ -22,7 +22,24 @@ import {
   Globe,
   Activity,
   Download,
+  Calendar,
+  History,
+  LogOut,
+  X,
+  Clock,
+  User,
 } from "lucide-react";
+import { formatBrDateTime, formatBrDateTimeFull } from "@/lib/date";
+
+export interface LinkHistoryItem {
+  id: string;
+  smartLinkId: string;
+  previousUrl: string;
+  newUrl: string;
+  changedAt: string;
+  changedByUserId: string | null;
+  changedByUserName?: string;
+}
 
 interface SmartLinkItem {
   id: string;
@@ -33,6 +50,7 @@ interface SmartLinkItem {
   qrScanCount: number;
   status: string;
   createdAt: string;
+  history?: LinkHistoryItem[];
   qrCode?: { fgColor: string; bgColor: string } | null;
   product?: { id: string; name: string } | null;
   campaign?: { id: string; name: string } | null;
@@ -50,6 +68,30 @@ interface AnalyticsData {
   topCountries: { country: string; count: number }[];
 }
 
+interface CampaignItem {
+  id: string;
+  name: string;
+  status: string;
+  description: string | null;
+  _count?: {
+    smartLinks: number;
+    conversions: number;
+  };
+}
+
+interface ProductItem {
+  id: string;
+  name: string;
+  platform: string;
+  offers?: Array<{
+    id?: string;
+    commissionValue?: number | string;
+  }>;
+  _count?: {
+    smartLinks: number;
+  };
+}
+
 export default function DashboardPage() {
   const [user, setUser] = useState<{
     id: string;
@@ -60,8 +102,8 @@ export default function DashboardPage() {
 
   const [activeTab, setActiveTab] = useState<"links" | "campaigns" | "products" | "analytics">("links");
   const [links, setLinks] = useState<SmartLinkItem[]>([]);
-  const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
+  const [products, setProducts] = useState<ProductItem[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -79,6 +121,11 @@ export default function DashboardPage() {
   // Modal de QR Code
   const [qrModalLink, setQrModalLink] = useState<SmartLinkItem | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  // Modal de Histórico de Alterações
+  const [historyModalLink, setHistoryModalLink] = useState<SmartLinkItem | null>(null);
+  const [historyItems, setHistoryItems] = useState<LinkHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Formulário de Criação de Link
   const [newUrl, setNewUrl] = useState("");
@@ -102,7 +149,6 @@ export default function DashboardPage() {
   const [campDescription, setCampDescription] = useState("");
 
   const fetchData = async () => {
-    setLoading(true);
     try {
       const authRes = await fetch("/api/auth");
       const authData = await authRes.json();
@@ -110,6 +156,8 @@ export default function DashboardPage() {
         setUser(authData.user);
       } else {
         setUser(null);
+        window.location.href = "/";
+        return;
       }
 
       const linksRes = await fetch("/api/links");
@@ -135,7 +183,50 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    fetchData();
+    let isMounted = true;
+    (async () => {
+      try {
+        const authRes = await fetch("/api/auth");
+        const authData = await authRes.json();
+        if (!isMounted) return;
+        if (authData.authenticated && authData.user) {
+          setUser(authData.user);
+        } else {
+          setUser(null);
+          window.location.href = "/";
+          return;
+        }
+
+        const [linksRes, campRes, prodRes, anaRes] = await Promise.all([
+          fetch("/api/links"),
+          fetch("/api/campaigns"),
+          fetch("/api/products"),
+          fetch("/api/analytics"),
+        ]);
+
+        if (!isMounted) return;
+
+        const linksData = await linksRes.json();
+        const campData = await campRes.json();
+        const prodData = await prodRes.json();
+        const anaData = await anaRes.json();
+
+        if (isMounted) {
+          setLinks(linksData.links || []);
+          setCampaigns(campData.campaigns || []);
+          setProducts(prodData.products || []);
+          setAnalytics(anaData);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleCopy = (slug: string, id: string) => {
@@ -154,6 +245,37 @@ export default function DashboardPage() {
       setQrDataUrl(data.dataUrl);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleOpenHistory = async (link: SmartLinkItem) => {
+    setHistoryModalLink(link);
+    setHistoryItems(link.history || []);
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/links/${link.id}/history`);
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryItems(data.history || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "logout" }),
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      window.location.href = "/";
     }
   };
 
@@ -302,13 +424,23 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <button
-            onClick={() => setCreateModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-[#4267E9] hover:bg-[#3556D4] text-white font-medium text-xs rounded-lg transition-colors cursor-pointer shrink-0 shadow-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Criar Smart Link</span>
-          </button>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => setCreateModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#4267E9] hover:bg-[#3556D4] text-white font-medium text-xs rounded-lg transition-colors cursor-pointer shadow-sm"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Criar Smart Link</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-950 hover:bg-rose-500/10 border border-slate-800 hover:border-rose-500/30 text-slate-300 hover:text-rose-400 font-medium text-xs rounded-lg transition-colors cursor-pointer"
+              title="Encerrar sessão"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sair</span>
+            </button>
+          </div>
         </div>
 
         {/* Métricas Principais (Cards em rounded-xl, escala 4px) */}
@@ -467,6 +599,11 @@ export default function DashboardPage() {
                             {link.destinationUrl}
                           </span>
                         </div>
+
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono mt-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                          <span>Criado em: {formatBrDateTime(link.createdAt)}</span>
+                        </div>
                       </div>
 
                       <div className="flex items-center gap-4 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
@@ -505,6 +642,14 @@ export default function DashboardPage() {
                             title="Ver QR Code Dinâmico"
                           >
                             <QrCode className="w-4 h-4 text-sky-400" />
+                          </button>
+
+                          <button
+                            onClick={() => handleOpenHistory(link)}
+                            className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-purple-400 rounded-lg border border-slate-800 transition-colors cursor-pointer"
+                            title="Ver Histórico de Alterações"
+                          >
+                            <History className="w-4 h-4 text-purple-400" />
                           </button>
 
                           <button
@@ -1026,6 +1171,109 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Histórico de Alterações */}
+      {historyModalLink && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 max-w-xl w-full shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-purple-400" />
+                  <h3 className="text-base font-semibold text-white">
+                    Histórico de Alterações
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Smart Link <span className="text-[#4267E9] font-mono font-semibold">/{historyModalLink.slug}</span>
+                  {historyModalLink.title ? ` • ${historyModalLink.title}` : ""}
+                </p>
+              </div>
+              <button
+                onClick={() => setHistoryModalLink(null)}
+                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="py-2 text-xs text-slate-400 border-b border-slate-800/60 flex items-center justify-between shrink-0">
+              <span className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                Criado em: <strong className="text-slate-200 font-mono">{formatBrDateTime(historyModalLink.createdAt)}</strong>
+              </span>
+              <span className="text-[11px] text-slate-500">
+                {historyItems.length} alteração(ões) registrada(s)
+              </span>
+            </div>
+
+            <div className="overflow-y-auto flex-1 py-4 space-y-3 pr-1">
+              {historyLoading ? (
+                <div className="py-8 text-center text-xs text-slate-400">
+                  <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+                  Carregando registros de histórico...
+                </div>
+              ) : historyItems.length === 0 ? (
+                <div className="py-8 text-center rounded-lg border border-dashed border-slate-800 bg-slate-950/40 p-6">
+                  <History className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                  <p className="text-xs font-medium text-slate-300">
+                    Nenhuma alteração registrada
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
+                    O destino deste Smart Link nunca foi alterado. O redirecionamento continua apontando para a URL definida na criação.
+                  </p>
+                </div>
+              ) : (
+                historyItems.map((item, idx) => (
+                  <div
+                    key={item.id || idx}
+                    className="p-3.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-slate-700/80 transition-colors space-y-2"
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono text-purple-400 font-medium flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5" />
+                        {formatBrDateTime(item.changedAt)}
+                      </span>
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <User className="w-3 h-3 text-slate-500" />
+                        <span className="text-slate-300 font-medium">
+                          {item.changedByUserName || item.changedByUserId || "Administrador"}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 text-xs font-mono">
+                      <div className="p-2 rounded bg-rose-950/20 border border-rose-900/30 text-rose-300 break-all">
+                        <span className="text-[10px] uppercase font-sans font-semibold tracking-wider text-rose-400 block mb-0.5">
+                          Destino Anterior:
+                        </span>
+                        {item.previousUrl}
+                      </div>
+                      <div className="p-2 rounded bg-emerald-950/20 border border-emerald-900/30 text-emerald-300 break-all">
+                        <span className="text-[10px] uppercase font-sans font-semibold tracking-wider text-emerald-400 block mb-0.5">
+                          Novo Destino:
+                        </span>
+                        {item.newUrl}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setHistoryModalLink(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg cursor-pointer transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
           </div>
         </div>
       )}
