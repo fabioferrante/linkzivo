@@ -158,9 +158,12 @@ export async function createSessionCookie(user: SessionUser) {
   const cookieStore = await cookies();
   const token = `${user.id}:${user.workspaceId}`;
 
+  const isLocalhost = process.env.NEXT_PUBLIC_APP_URL?.includes("localhost") || process.env.PORT !== undefined;
+  const isSecure = process.env.NODE_ENV === "production" && !isLocalhost;
+
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 30, // 30 dias
@@ -172,9 +175,12 @@ export async function createSessionCookie(user: SessionUser) {
  */
 export async function destroySessionCookie() {
   const cookieStore = await cookies();
+  const isLocalhost = process.env.NEXT_PUBLIC_APP_URL?.includes("localhost") || process.env.PORT !== undefined;
+  const isSecure = process.env.NODE_ENV === "production" && !isLocalhost;
+
   cookieStore.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: 0,

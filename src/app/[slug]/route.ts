@@ -4,6 +4,9 @@ import { generateClickId } from "@/lib/slug";
 
 export const dynamic = "force-dynamic";
 
+// Mapa global de debounce em memória por smartLinkId (garante atomicidade mesmo em rajadas concorrentes de câmeras/scanners)
+const qrScanDebounceMap = new Map<string, number>();
+
 /**
  * Endpoint de Redirecionamento de Ultra Baixa Latência (Smart Link Resolver).
  * GET /[slug]
@@ -140,12 +143,24 @@ export async function GET(
   else if (/firefox|fxios/i.test(userAgent)) browser = "Firefox";
   else if (/safari/i.test(userAgent)) browser = "Safari";
 
-  // 6. Registro ASSÍNCRONO do clique (Não bloqueia o redirect)
+  // 6. Registro do clique
   // Ignora requisições de prefetch puro ou bots para não inflar métricas humanas
   if (!isPrefetch && !isBotOrCrawler) {
-    const trackClickPromise = (async () => {
+    let shouldRecord = true;
+
+    // Se for acesso por QR Code, deduplica rajadas concorrentes de câmera/leitor/navegador (debounce de 4s)
+    if (isQrScan) {
+      const now = Date.now();
+      const lastScanTime = qrScanDebounceMap.get(link.id);
+      if (lastScanTime && now - lastScanTime < 4000) {
+        shouldRecord = false;
+      } else {
+        qrScanDebounceMap.set(link.id, now);
+      }
+    }
+
+    if (shouldRecord) {
       try {
-        // Se for acesso por QR Code, deduplica escaneamento rápido (janela de 4s para debounce entre scanner e browser)
         if (isQrScan) {
           const recentScan = await db.click.findFirst({
             where: {
@@ -157,53 +172,52 @@ export async function GET(
           });
 
           if (recentScan) {
-            // Já contabilizado na abertura imediata do leitor de QR Code; evita segundo clique duplicado
-            return;
+            shouldRecord = false;
           }
         }
 
-        await db.$transaction([
-          db.click.create({
-            data: {
-              id: clickId,
-              smartLinkId: link.id,
-              workspaceId: link.workspaceId,
-              campaignId: link.campaignId,
-              productId: link.productId,
-              offerId: link.offerId,
-              channelId: link.channelId,
-              country,
-              device,
-              os,
-              browser,
-              referer: referer?.slice(0, 500),
-              isQrScan,
-            },
-          }),
-          db.smartLink.update({
-            where: { id: link.id },
-            data: {
-              clickCount: { increment: 1 },
-              qrScanCount: isQrScan ? { increment: 1 } : undefined,
-            },
-          }),
-          ...(isQrScan
-            ? [
-                db.qrCode.updateMany({
-                  where: { smartLinkId: link.id },
-                  data: {
-                    scanCount: { increment: 1 },
-                  },
-                }),
-              ]
-            : []),
-        ]);
+        if (shouldRecord) {
+          await db.$transaction([
+            db.click.create({
+              data: {
+                id: clickId,
+                smartLinkId: link.id,
+                workspaceId: link.workspaceId,
+                campaignId: link.campaignId,
+                productId: link.productId,
+                offerId: link.offerId,
+                channelId: link.channelId,
+                country,
+                device,
+                os,
+                browser,
+                referer: referer?.slice(0, 500),
+                isQrScan,
+              },
+            }),
+            db.smartLink.update({
+              where: { id: link.id },
+              data: {
+                clickCount: { increment: 1 },
+                qrScanCount: isQrScan ? { increment: 1 } : undefined,
+              },
+            }),
+            ...(isQrScan
+              ? [
+                  db.qrCode.updateMany({
+                    where: { smartLinkId: link.id },
+                    data: {
+                      scanCount: { increment: 1 },
+                    },
+                  }),
+                ]
+              : []),
+          ]);
+        }
       } catch (err) {
         console.error("[Tracking Error]", err);
       }
-    })();
-
-    trackClickPromise.catch(() => {});
+    }
   }
 
   // 7. Resposta HTTP 302 Imediata com cabeçalhos anti-cache
