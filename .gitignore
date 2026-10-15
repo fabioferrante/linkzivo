@@ -46,6 +46,7 @@ dev.db-journal
 
 # DOE architecture intermediates
 .tmp/
+.tmp*
 scratch/
 
 # vercel

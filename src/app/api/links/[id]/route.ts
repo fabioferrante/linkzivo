@@ -52,7 +52,7 @@ export async function PATCH(
     const { id } = await params;
     const session = await getSession();
     const body = await request.json();
-    const { destinationUrl, title, status, fallbackUrl } = body;
+    const { destinationUrl, title, status, fallbackUrl, campaignId, productId, offerId } = body;
 
     const existingLink = await db.smartLink.findUnique({
       where: { id },
@@ -101,8 +101,16 @@ export async function PATCH(
           title: title !== undefined ? title : existingLink.title,
           status: status || existingLink.status,
           fallbackUrl: fallbackUrl !== undefined ? fallbackUrl : existingLink.fallbackUrl,
+          campaignId: campaignId !== undefined ? (campaignId || null) : existingLink.campaignId,
+          productId: productId !== undefined ? (productId || null) : existingLink.productId,
+          offerId: offerId !== undefined ? (offerId || null) : existingLink.offerId,
         },
-        include: { qrCode: true },
+        include: {
+          qrCode: true,
+          product: { select: { id: true, name: true } },
+          offer: { select: { id: true, name: true, affiliateUrl: true } },
+          campaign: { select: { id: true, name: true } },
+        },
       });
     });
 

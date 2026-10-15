@@ -46,7 +46,10 @@ export function Navbar({ user, onOpenAuth, onLogout }: NavbarProps) {
 
           {/* Badge de Status do Sistema */}
           <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-400">
-            <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span className="relative flex h-2 w-2 items-center justify-center">
+              <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400/60" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+            </span>
             <span className="text-slate-300 font-medium">SaaS Operacional</span>
             <span className="text-slate-600">•</span>
             <span className="text-emerald-400 font-mono text-[11px]">&lt; 18ms</span>

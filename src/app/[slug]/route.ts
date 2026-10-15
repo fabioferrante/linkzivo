@@ -118,22 +118,34 @@ export async function GET(
     userAgent
   );
 
-  // Classificação robusta de dispositivo (evita classificar câmeras/scanners mobile como Desktop)
+  // Headers de Client Hints móveis
+  const secChMobile = request.headers.get("sec-ch-ua-mobile");
+  const secChPlatform = request.headers.get("sec-ch-ua-platform");
+
+  // Classificação precisa de dispositivo
   let device = "Desktop";
-  if (/ipad|tablet/i.test(userAgent)) {
+  const isTablet = /ipad|tablet/i.test(userAgent);
+  const isMobileUa = /iphone|ipod|android|mobile|blackberry|iemobile|kindle|silk|opera mini|cfnetwork|darwin|dalvik|lens|barcode|scanner|camera/i.test(userAgent);
+  const isMobileHint = secChMobile === "?1" || /ios|android/i.test(secChPlatform || "");
+
+  if (isTablet) {
     device = "Tablet";
-  } else if (
-    /iphone|ipod|android|mobile|blackberry|iemobile|kindle|silk|opera mini/i.test(
-      userAgent
-    )
-  ) {
+  } else if (isMobileUa || isMobileHint) {
     device = "Mobile";
+  } else if (isQrScan) {
+    // Escaneamento de QR Code provém quase universalmente de dispositivo móvel (câmera)
+    // Se não for explicitamente um desktop Windows NT puro sem scanner, classifica como Mobile
+    if (/windows nt/i.test(userAgent) && !/mobile|phone|android/i.test(userAgent)) {
+      device = "Desktop";
+    } else {
+      device = "Mobile";
+    }
   }
 
   let os = "Outro";
   if (/windows/i.test(userAgent)) os = "Windows";
-  else if (/iphone|ipad|ipod/i.test(userAgent)) os = "iOS";
-  else if (/android/i.test(userAgent)) os = "Android";
+  else if (/iphone|ipad|ipod|darwin|cfnetwork/i.test(userAgent)) os = "iOS";
+  else if (/android|dalvik/i.test(userAgent)) os = "Android";
   else if (/macintosh|mac os x/i.test(userAgent)) os = "macOS";
   else if (/linux/i.test(userAgent)) os = "Linux";
 
@@ -148,11 +160,11 @@ export async function GET(
   if (!isPrefetch && !isBotOrCrawler) {
     let shouldRecord = true;
 
-    // Se for acesso por QR Code, deduplica rajadas concorrentes de câmera/leitor/navegador (debounce de 4s)
+    // Se for acesso por QR Code, deduplica rajadas concorrentes de câmera/leitor/navegador (janela de 15s)
     if (isQrScan) {
       const now = Date.now();
       const lastScanTime = qrScanDebounceMap.get(link.id);
-      if (lastScanTime && now - lastScanTime < 4000) {
+      if (lastScanTime && now - lastScanTime < 15000) {
         shouldRecord = false;
       } else {
         qrScanDebounceMap.set(link.id, now);
@@ -166,13 +178,25 @@ export async function GET(
             where: {
               smartLinkId: link.id,
               isQrScan: true,
-              timestamp: { gte: new Date(Date.now() - 4000) },
+              timestamp: { gte: new Date(Date.now() - 15000) },
             },
-            select: { id: true },
+            orderBy: { timestamp: "desc" },
+            select: { id: true, device: true, browser: true, os: true },
           });
 
           if (recentScan) {
             shouldRecord = false;
+            // Se o primeiro registro foi um handshake da câmera e agora abriu o navegador completo, enriquece os metadados
+            if (recentScan.device !== device || recentScan.browser === "Outro") {
+              await db.click.update({
+                where: { id: recentScan.id },
+                data: {
+                  device,
+                  os: os !== "Outro" ? os : recentScan.os,
+                  browser: browser !== "Outro" ? browser : recentScan.browser,
+                },
+              }).catch(() => {});
+            }
           }
         }
 
