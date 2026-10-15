@@ -38,8 +38,17 @@ export async function GET(
     },
   });
 
-  if (!link || link.status !== "ACTIVE") {
-    // Redireciona para página de erro 404 / link expirado da plataforma
+  if (!link) {
+    return NextResponse.redirect(new URL("/not-found-link", request.url), 302);
+  }
+
+  // Se o Smart Link estiver pausado, retorna resposta controlada sem redirecionar e sem registrar métricas (Requisito 7)
+  if (link.status === "PAUSED") {
+    return NextResponse.redirect(new URL("/paused-link", request.url), 302);
+  }
+
+  if (link.status !== "ACTIVE") {
+    // Redireciona para página de erro 404 / não encontrado
     return NextResponse.redirect(new URL("/not-found-link", request.url), 302);
   }
 

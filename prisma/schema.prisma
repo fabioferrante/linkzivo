@@ -71,6 +71,7 @@ model Product {
   workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   offers            Offer[]
   campaigns         Campaign[]
+  campaignProducts  CampaignProduct[]
   smartLinks        SmartLink[]
   conversions       Conversion[]
 }
@@ -109,11 +110,26 @@ model Campaign {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
-  offer       Offer?    @relation(fields: [offerId], references: [id], onDelete: SetNull)
-  smartLinks  SmartLink[]
-  conversions Conversion[]
+  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  product           Product?          @relation(fields: [productId], references: [id], onDelete: SetNull)
+  offer             Offer?            @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  campaignProducts  CampaignProduct[]
+  smartLinks        SmartLink[]
+  conversions       Conversion[]
+}
+
+model CampaignProduct {
+  id          String    @id @default(cuid())
+  campaignId  String
+  productId   String
+  createdAt   DateTime  @default(now())
+
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, productId])
+  @@index([campaignId])
+  @@index([productId])
 }
 
 model Channel {

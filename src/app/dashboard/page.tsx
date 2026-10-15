@@ -33,6 +33,11 @@ import {
   ChevronRight,
   Monitor,
   Tag,
+  Pause,
+  Play,
+  Power,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { formatBrDateTime } from "@/lib/date";
 
@@ -112,9 +117,18 @@ interface CampaignItem {
   description: string | null;
   budget?: number | null;
   smartLinks?: SmartLinkItem[];
+  campaignProducts?: Array<{
+    product: {
+      id: string;
+      name: string;
+      platform: string;
+      status: string;
+    };
+  }>;
   _count?: {
     smartLinks: number;
     conversions: number;
+    campaignProducts?: number;
   };
 }
 
@@ -133,11 +147,19 @@ interface ProductItem {
   id: string;
   name: string;
   platform: string;
+  status: string;
   description?: string | null;
   category?: string | null;
   brand?: string | null;
   offers?: ProductOffer[];
   smartLinks?: SmartLinkItem[];
+  campaignProducts?: Array<{
+    campaign: {
+      id: string;
+      name: string;
+      status: string;
+    };
+  }>;
   _count?: {
     campaigns?: number;
     smartLinks: number;
@@ -233,15 +255,23 @@ function DashboardContent() {
   const [editOfferId, setEditOfferId] = useState("");
   const [editLoading, setEditLoading] = useState(false);
 
+  // Filtros de status de ciclo de vida
+  const [linkFilter, setLinkFilter] = useState<"all" | "ACTIVE" | "PAUSED">("all");
+  const [campaignFilter, setCampaignFilter] = useState<"all" | "ACTIVE" | "ENDED">("all");
+  const [productFilter, setProductFilter] = useState<"all" | "ACTIVE" | "INACTIVE">("all");
+  const [lifecycleActionLoading, setLifecycleActionLoading] = useState<string | null>(null);
+
   // Modal de Detalhes da Campanha
   const [campaignDetail, setCampaignDetail] = useState<{
     campaign: CampaignItem;
     metrics: {
       totalLinks: number;
       totalClicks: number;
+      uniqueClicks?: number;
       totalQrScans: number;
       totalConversions: number;
       confirmedCommission: number;
+      deviceBreakdown?: Array<{ name: string; count: number; pct: number }>;
     };
   } | null>(null);
   const [campaignDetailLoading, setCampaignDetailLoading] = useState(false);
@@ -253,10 +283,12 @@ function DashboardContent() {
       totalOffers: number;
       totalLinks: number;
       totalClicks: number;
+      uniqueClicks?: number;
       totalQrScans: number;
       totalConversions: number;
       confirmedCommission: number;
       estimatedCommission: number;
+      deviceBreakdown?: Array<{ name: string; count: number; pct: number }>;
     };
   } | null>(null);
   const [productDetailLoading, setProductDetailLoading] = useState(false);
@@ -294,10 +326,15 @@ function DashboardContent() {
   const [prodOfferUrl, setProdOfferUrl] = useState("");
   const [prodCommission, setProdCommission] = useState("");
 
-  // Formulário de Criação de Campanha
+  // Formulário de Criação / Edição de Campanha
   const [createCampaignOpen, setCreateCampaignOpen] = useState(false);
+  const [editingCampaign, setEditingCampaign] = useState<CampaignItem | null>(null);
   const [campName, setCampName] = useState("");
   const [campDescription, setCampDescription] = useState("");
+  const [campStatus, setCampStatus] = useState("ACTIVE");
+  const [campProductIds, setCampProductIds] = useState<string[]>([]);
+  const [campLinkIds, setCampLinkIds] = useState<string[]>([]);
+  const [campLoading, setCampLoading] = useState(false);
 
   // Carregamento inicial de todos os dados essenciais com no-store para evitar falsos deslogados
   const fetchAllData = async (selectedPeriod = period) => {
@@ -593,26 +630,181 @@ function DashboardContent() {
     }
   };
 
-  const handleCreateCampaign = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handlers de Ciclo de Vida: Smart Links (Pausar / Reativar)
+  const handleToggleLinkStatus = async (link: SmartLinkItem) => {
+    const isPaused = link.status === "PAUSED";
+    const nextStatus = isPaused ? "ACTIVE" : "PAUSED";
+    if (!isPaused) {
+      const confirmPause = confirm(
+        `Pausar o link "/${link.slug}"?\n\n` +
+        `Atenção: O redirecionamento público será temporariamente suspenso para todos os visitantes em todas as campanhas, exibindo uma tela de manutenção controlada.\n\n` +
+        `Nenhuma métrica, histórico ou QR Code será afetado. Deseja pausar este link?`
+      );
+      if (!confirmPause) return;
+    }
     try {
-      const res = await fetch("/api/campaigns", {
-        method: "POST",
+      setLifecycleActionLoading(link.id);
+      const res = await fetch(`/api/links/${link.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: campName,
-          description: campDescription,
-        }),
+        body: JSON.stringify({ status: nextStatus }),
       });
-      if (res.ok) {
-        setCreateCampaignOpen(false);
-        setCampName("");
-        setCampDescription("");
-        fetchAllData(period);
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Erro ao alterar estado do link.");
+        return;
+      }
+      fetchAllData(period);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLifecycleActionLoading(null);
+    }
+  };
+
+  // Handlers de Ciclo de Vida: Campanhas (Encerrar / Reiniciar)
+  const handleToggleCampaignStatus = async (campId: string, currentStatus: string) => {
+    const isEnded = currentStatus === "ENDED";
+    const nextStatus = isEnded ? "ACTIVE" : "ENDED";
+    if (!isEnded) {
+      const confirmEnd = confirm(
+        "Deseja encerrar esta campanha?\n\n" +
+        "Importante: Todos os produtos e Smart Links continuarão funcionando normalmente e todo o histórico analítico será preservado. A campanha deixará de aceitar novos links temporariamente.\n\nDeseja prosseguir?"
+      );
+      if (!confirmEnd) return;
+    }
+    try {
+      setLifecycleActionLoading(campId);
+      const res = await fetch(`/api/campaigns/${campId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Erro ao alterar estado da campanha.");
+        return;
+      }
+      fetchAllData(period);
+      if (campaignDetail && campaignDetail.campaign.id === campId) {
+        handleOpenCampaignDetails(campId);
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setLifecycleActionLoading(null);
     }
+  };
+
+  // Handlers de Ciclo de Vida: Produtos (Desativar / Reativar)
+  const handleToggleProductStatus = async (prodId: string, currentStatus: string) => {
+    const isInactive = currentStatus === "INACTIVE";
+    const nextStatus = isInactive ? "ACTIVE" : "INACTIVE";
+    if (!isInactive) {
+      const confirmDeact = confirm(
+        "Deseja desativar este produto do catálogo?\n\n" +
+        "Produtos desativados não poderão ser adicionados a novas campanhas ou novos Smart Links. Links já existentes continuarão funcionando normalmente e todo o histórico será preservado.\n\nDeseja desativar?"
+      );
+      if (!confirmDeact) return;
+    }
+    try {
+      setLifecycleActionLoading(prodId);
+      const res = await fetch(`/api/products/${prodId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Erro ao alterar estado do produto.");
+        return;
+      }
+      fetchAllData(period);
+      if (productDetail && productDetail.product.id === prodId) {
+        handleOpenProductDetails(prodId);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLifecycleActionLoading(null);
+    }
+  };
+
+  // Abertura do formulário de criação de campanha
+  const handleOpenCreateCampaign = () => {
+    setEditingCampaign(null);
+    setCampName("");
+    setCampDescription("");
+    setCampProductIds([]);
+    setCampLinkIds([]);
+    setCampStatus("ACTIVE");
+    setCreateCampaignOpen(true);
+  };
+
+  // Abertura do formulário de edição de campanha
+  const handleOpenEditCampaign = (camp: CampaignItem) => {
+    setEditingCampaign(camp);
+    setCampName(camp.name);
+    setCampDescription(camp.description || "");
+    setCampProductIds(camp.campaignProducts?.map((cp) => cp.product.id) || []);
+    setCampLinkIds(camp.smartLinks?.map((l) => l.id) || []);
+    setCampStatus(camp.status || "ACTIVE");
+    setCreateCampaignOpen(true);
+  };
+
+  // Salvar campanha (criação ou edição com sincronização de múltiplos produtos e links)
+  const handleSaveCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!campName.trim()) return;
+    setCampLoading(true);
+    try {
+      const url = editingCampaign ? `/api/campaigns/${editingCampaign.id}` : "/api/campaigns";
+      const method = editingCampaign ? "PATCH" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: campName.trim(),
+          description: campDescription.trim() || undefined,
+          status: campStatus,
+          productIds: campProductIds,
+          linkIds: campLinkIds,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Erro ao salvar campanha.");
+        return;
+      }
+      setCreateCampaignOpen(false);
+      setEditingCampaign(null);
+      setCampName("");
+      setCampDescription("");
+      setCampProductIds([]);
+      setCampLinkIds([]);
+      fetchAllData(period);
+      if (editingCampaign && campaignDetail && campaignDetail.campaign.id === editingCampaign.id) {
+        handleOpenCampaignDetails(editingCampaign.id);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCampLoading(false);
+    }
+  };
+
+  // Alternar produto na seleção da campanha
+  const handleToggleCampProduct = (prodId: string) => {
+    setCampProductIds((prev) =>
+      prev.includes(prodId) ? prev.filter((id) => id !== prodId) : [...prev, prodId]
+    );
+  };
+
+  // Alternar link na seleção da campanha
+  const handleToggleCampLink = (linkId: string) => {
+    setCampLinkIds((prev) =>
+      prev.includes(linkId) ? prev.filter((id) => id !== linkId) : [...prev, linkId]
+    );
   };
 
   // Ofertas disponíveis do produto selecionado no modal de criação
@@ -1199,304 +1391,587 @@ function DashboardContent() {
         )}
 
         {/* =========================================================================
-            ABA 2: SMART LINKS (Gestão Completa de Links)
+            ABA 2: SMART LINKS (Gestão Completa de Links e Ciclo de Vida)
             ========================================================================= */}
         {activeTab === "links" && (
           <div className="space-y-4">
-            {links.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center">
-                <Link2 className="w-10 h-10 text-[#4267E9] mx-auto mb-3 opacity-60" />
-                <h3 className="text-base font-semibold text-white mb-1">
-                  Nenhum Smart Link criado ainda
-                </h3>
-                <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
-                  Encurte uma URL para gerar seu primeiro link com QR Code dinâmico e rastreamento.
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+              <div>
+                <h2 className="text-base font-semibold text-white">Smart Links</h2>
+                <p className="text-xs text-slate-400">
+                  Gerencie links curtos, destinos dinâmicos, ciclo de vida e atribuição a campanhas.
                 </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Filtro de Status de Links */}
+                <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  <button
+                    onClick={() => setLinkFilter("all")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      linkFilter === "all"
+                        ? "bg-[#4267E9] text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Todos ({links.length})
+                  </button>
+                  <button
+                    onClick={() => setLinkFilter("ACTIVE")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      linkFilter === "ACTIVE"
+                        ? "bg-emerald-600 text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Ativos ({links.filter((l) => l.status !== "PAUSED").length})
+                  </button>
+                  <button
+                    onClick={() => setLinkFilter("PAUSED")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      linkFilter === "PAUSED"
+                        ? "bg-amber-600 text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Pausados ({links.filter((l) => l.status === "PAUSED").length})
+                  </button>
+                </div>
+
                 <button
                   onClick={() => setCreateModalOpen(true)}
-                  className="px-4 py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shadow-sm"
                 >
-                  Criar Primeiro Link
+                  <Plus className="w-3.5 h-3.5" />
+                  Novo Link
                 </button>
               </div>
-            ) : (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-sm">
-                <div className="divide-y divide-slate-800">
-                  {links.map((link) => (
-                    <div
-                      key={link.id}
-                      className="p-4 sm:p-6 hover:bg-slate-800/40 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-sm font-semibold font-mono text-white hover:text-[#4267E9] transition-colors">
-                            /{link.slug}
-                          </span>
-                          {link.title && (
-                            <span className="text-xs text-slate-400 truncate max-w-xs">
-                              • {link.title}
+            </div>
+
+            {(() => {
+              const filteredLinks = links.filter((l) => {
+                if (linkFilter === "ACTIVE") return l.status !== "PAUSED";
+                if (linkFilter === "PAUSED") return l.status === "PAUSED";
+                return true;
+              });
+
+              if (filteredLinks.length === 0) {
+                return (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center">
+                    <Link2 className="w-10 h-10 text-[#4267E9] mx-auto mb-3 opacity-60" />
+                    <h3 className="text-base font-semibold text-white mb-1">
+                      {linkFilter === "all"
+                        ? "Nenhum Smart Link criado ainda"
+                        : `Nenhum Smart Link com status "${linkFilter === "ACTIVE" ? "Ativo" : "Pausado"}"`}
+                    </h3>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
+                      Encurte uma URL para gerar seu primeiro link com QR Code dinâmico e rastreamento.
+                    </p>
+                    {linkFilter === "all" && (
+                      <button
+                        onClick={() => setCreateModalOpen(true)}
+                        className="px-4 py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                      >
+                        Criar Primeiro Link
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-sm">
+                  <div className="divide-y divide-slate-800">
+                    {filteredLinks.map((link) => (
+                      <div
+                        key={link.id}
+                        className={`p-4 sm:p-6 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                          link.status === "PAUSED"
+                            ? "bg-amber-950/10 hover:bg-amber-950/20 border-l-2 border-l-amber-500"
+                            : "hover:bg-slate-800/40"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-sm font-semibold font-mono text-white hover:text-[#4267E9] transition-colors">
+                              /{link.slug}
                             </span>
-                          )}
-                          {link.campaign && (
-                            <span className="text-[10px] bg-[#4267E9]/15 text-[#4267E9] px-2 py-0.5 rounded font-medium border border-[#4267E9]/30">
-                              Campanha: {link.campaign.name}
-                            </span>
-                          )}
-                          {link.product && (
-                            <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded font-medium border border-amber-500/20">
-                              Produto: {link.product.name}
-                            </span>
-                          )}
+                            {link.title && (
+                              <span className="text-xs text-slate-400 truncate max-w-xs">
+                                • {link.title}
+                              </span>
+                            )}
+
+                            {/* Badge de Status de Ciclo de Vida */}
+                            {link.status === "PAUSED" ? (
+                              <span className="text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-medium flex items-center gap-1">
+                                <Pause className="w-2.5 h-2.5" /> Pausado
+                              </span>
+                            ) : (
+                              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-medium flex items-center gap-1">
+                                <CheckCircle2 className="w-2.5 h-2.5" /> Ativo
+                              </span>
+                            )}
+
+                            {link.campaign && (
+                              <span className="text-[10px] bg-[#4267E9]/15 text-[#4267E9] px-2 py-0.5 rounded font-medium border border-[#4267E9]/30">
+                                Campanha: {link.campaign.name}
+                              </span>
+                            )}
+                            {link.product && (
+                              <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded font-medium border border-amber-500/20">
+                                Produto: {link.product.name}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-slate-400 truncate">
+                            <span className="text-slate-500">Destino:</span>
+                            <a
+                              href={link.destinationUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-slate-300 font-mono truncate max-w-md underline hover:text-[#4267E9]"
+                            >
+                              {link.destinationUrl}
+                            </a>
+                            {link.status === "PAUSED" && (
+                              <span className="text-[11px] text-amber-400/90 font-sans italic ml-1">
+                                (Redirecionamento bloqueado com segurança)
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono mt-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                            <span>Criado em: {formatBrDateTime(link.createdAt)}</span>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-2 text-xs text-slate-400 truncate">
-                          <span className="text-slate-500">Destino:</span>
-                          <a
-                            href={link.destinationUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-slate-300 font-mono truncate max-w-md underline hover:text-[#4267E9]"
-                          >
-                            {link.destinationUrl}
-                          </a>
-                        </div>
+                        <div className="flex items-center gap-4 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
+                          <div className="flex items-center gap-2 text-right font-mono">
+                            <div className="text-center px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
+                              <span className="block text-xs font-semibold text-white">
+                                {link.clickCount}
+                              </span>
+                              <span className="block text-[10px] text-slate-500">Cliques</span>
+                            </div>
 
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono mt-1.5">
-                          <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                          <span>Criado em: {formatBrDateTime(link.createdAt)}</span>
+                            <div className="text-center px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
+                              <span className="block text-xs font-semibold text-sky-400">
+                                {link.qrScanCount}
+                              </span>
+                              <span className="block text-[10px] text-slate-500">QR Scans</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {/* Ação de Ciclo de Vida: Pausar / Reativar */}
+                            <button
+                              onClick={() => handleToggleLinkStatus(link)}
+                              disabled={lifecycleActionLoading === link.id}
+                              className={`p-2 rounded-lg border transition-colors cursor-pointer ${
+                                link.status === "PAUSED"
+                                  ? "bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border-emerald-800/80"
+                                  : "bg-slate-950 hover:bg-amber-950/40 text-slate-300 hover:text-amber-400 border-slate-800"
+                              }`}
+                              title={
+                                link.status === "PAUSED"
+                                  ? "Reativar link curto"
+                                  : "Pausar link (Interrompe redirecionamento público)"
+                              }
+                            >
+                              {link.status === "PAUSED" ? (
+                                <Play className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <Pause className="w-4 h-4 text-amber-400" />
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => handleCopy(link.slug, link.id)}
+                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
+                              title="Copiar Link Curto"
+                            >
+                              {copiedId === link.id ? (
+                                <Check className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-[#4267E9]" />
+                              )}
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenQr(link)}
+                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
+                              title="Ver QR Code Dinâmico"
+                            >
+                              <QrCode className="w-4 h-4 text-sky-400" />
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenHistory(link)}
+                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-purple-400 rounded-lg border border-slate-800 transition-colors cursor-pointer"
+                              title="Ver Histórico de Alterações"
+                            >
+                              <History className="w-4 h-4 text-purple-400" />
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setEditingLink(link);
+                                setEditDestinationUrl(link.destinationUrl);
+                                setEditTitle(link.title || "");
+                                setEditCampaignId(link.campaign?.id || "");
+                                setEditProductId(link.product?.id || "");
+                                setEditOfferId(link.offer?.id || "");
+                              }}
+                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
+                              title="Editar Destino e Associações"
+                            >
+                              <Edit3 className="w-4 h-4 text-amber-400" />
+                            </button>
+
+                            <button
+                              onClick={() => handleDeleteLink(link.id)}
+                              className="p-2 bg-slate-950 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-lg border border-slate-800 transition-colors cursor-pointer"
+                              title="Excluir Link"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
-                      <div className="flex items-center gap-4 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
-                        <div className="flex items-center gap-2 text-right font-mono">
-                          <div className="text-center px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
-                            <span className="block text-xs font-semibold text-white">
-                              {link.clickCount}
-                            </span>
-                            <span className="block text-[10px] text-slate-500">Cliques</span>
-                          </div>
+        {/* =========================================================================
+            ABA 3: CAMPANHAS (Agrupamento Real & Ciclo de Vida)
+            ========================================================================= */}
+        {activeTab === "campaigns" && (
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+              <div>
+                <h2 className="text-base font-semibold text-white">Campanhas</h2>
+                <p className="text-xs text-slate-400">
+                  Agrupe múltiplos produtos e Smart Links para auditar tráfego de lançamentos e canais.
+                </p>
+              </div>
 
-                          <div className="text-center px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
-                            <span className="block text-xs font-semibold text-sky-400">
-                              {link.qrScanCount}
+              <div className="flex items-center gap-2">
+                {/* Filtro de Status de Campanhas */}
+                <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  <button
+                    onClick={() => setCampaignFilter("all")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      campaignFilter === "all"
+                        ? "bg-[#4267E9] text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Todas ({campaigns.length})
+                  </button>
+                  <button
+                    onClick={() => setCampaignFilter("ACTIVE")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      campaignFilter === "ACTIVE"
+                        ? "bg-emerald-600 text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Ativas ({campaigns.filter((c) => c.status === "ACTIVE").length})
+                  </button>
+                  <button
+                    onClick={() => setCampaignFilter("ENDED")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      campaignFilter === "ENDED"
+                        ? "bg-amber-600 text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Encerradas ({campaigns.filter((c) => c.status === "ENDED").length})
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleOpenCreateCampaign}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Nova Campanha
+                </button>
+              </div>
+            </div>
+
+            {(() => {
+              const filteredCampaigns = campaigns.filter((c) => {
+                if (campaignFilter === "ACTIVE") return c.status === "ACTIVE";
+                if (campaignFilter === "ENDED") return c.status === "ENDED";
+                return true;
+              });
+
+              if (filteredCampaigns.length === 0) {
+                return (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-400 text-xs">
+                    <Layers className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
+                    {campaignFilter === "all"
+                      ? "Nenhuma campanha criada. Crie campanhas para organizar o tráfego dos seus produtos e afiliados."
+                      : `Nenhuma campanha com status "${campaignFilter === "ACTIVE" ? "Ativa" : "Encerrada"}".`}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredCampaigns.map((camp) => (
+                    <div
+                      key={camp.id}
+                      className={`rounded-xl border bg-slate-900/50 p-6 flex flex-col justify-between transition-colors ${
+                        camp.status === "ENDED"
+                          ? "border-slate-800/80 bg-slate-950/40 opacity-80"
+                          : "border-slate-800 hover:border-slate-700"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-semibold text-white truncate max-w-[180px]">
+                            {camp.name}
+                          </h3>
+                          {camp.status === "ENDED" ? (
+                            <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-medium border border-slate-700 flex items-center gap-1">
+                              <Power className="w-2.5 h-2.5 text-slate-400" /> Encerrada
                             </span>
-                            <span className="block text-[10px] text-slate-500">QR Scans</span>
-                          </div>
+                          ) : (
+                            <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-medium border border-emerald-500/20 flex items-center gap-1">
+                              <CheckCircle2 className="w-2.5 h-2.5" /> Ativa
+                            </span>
+                          )}
+                        </div>
+                        {camp.description && (
+                          <p className="text-xs text-slate-400 mb-3 line-clamp-2">{camp.description}</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] text-slate-400 pt-3 border-t border-slate-800 flex justify-between font-mono mb-3">
+                          <span>Produtos: <strong className="text-slate-200">{camp.campaignProducts?.length || 0}</strong></span>
+                          <span>Links: <strong className="text-slate-200">{camp._count?.smartLinks || 0}</strong></span>
                         </div>
 
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex gap-2">
                           <button
-                            onClick={() => handleCopy(link.slug, link.id)}
-                            className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                            title="Copiar Link Curto"
+                            onClick={() => handleOpenCampaignDetails(camp.id)}
+                            className="flex-1 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded text-xs font-medium transition-colors cursor-pointer text-center"
                           >
-                            {copiedId === link.id ? (
-                              <Check className="w-4 h-4 text-emerald-400" />
+                            Ver Detalhes
+                          </button>
+                          <button
+                            onClick={() => handleOpenEditCampaign(camp)}
+                            className="p-1.5 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-amber-400 border border-slate-800 rounded cursor-pointer"
+                            title="Editar Associações"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleCampaignStatus(camp.id, camp.status)}
+                            disabled={lifecycleActionLoading === camp.id}
+                            className={`p-1.5 rounded border transition-colors cursor-pointer ${
+                              camp.status === "ENDED"
+                                ? "bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-400 border-emerald-800/80"
+                                : "bg-slate-950 hover:bg-amber-950/40 text-slate-400 hover:text-amber-400 border-slate-800"
+                            }`}
+                            title={camp.status === "ENDED" ? "Reiniciar Campanha" : "Encerrar Campanha"}
+                          >
+                            {camp.status === "ENDED" ? (
+                              <Play className="w-3.5 h-3.5" />
                             ) : (
-                              <Copy className="w-4 h-4 text-[#4267E9]" />
+                              <Power className="w-3.5 h-3.5" />
                             )}
                           </button>
-
                           <button
-                            onClick={() => handleOpenQr(link)}
-                            className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                            title="Ver QR Code Dinâmico"
+                            onClick={() => handleDeleteCampaign(camp.id)}
+                            className="p-1.5 bg-slate-950 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-800 rounded cursor-pointer"
+                            title="Excluir Campanha"
                           >
-                            <QrCode className="w-4 h-4 text-sky-400" />
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenHistory(link)}
-                            className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-purple-400 rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                            title="Ver Histórico de Alterações"
-                          >
-                            <History className="w-4 h-4 text-purple-400" />
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setEditingLink(link);
-                              setEditDestinationUrl(link.destinationUrl);
-                              setEditTitle(link.title || "");
-                              setEditCampaignId(link.campaign?.id || "");
-                              setEditProductId(link.product?.id || "");
-                              setEditOfferId(link.offer?.id || "");
-                            }}
-                            className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                            title="Editar Destino e Associações"
-                          >
-                            <Edit3 className="w-4 h-4 text-amber-400" />
-                          </button>
-
-                          <button
-                            onClick={() => handleDeleteLink(link.id)}
-                            className="p-2 bg-slate-950 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                            title="Excluir Link"
-                          >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
         {/* =========================================================================
-            ABA 3: CAMPANHAS (Agrupamento Real - Requisito 5)
-            ========================================================================= */}
-        {activeTab === "campaigns" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <h2 className="text-base font-semibold text-white">Campanhas</h2>
-                <p className="text-xs text-slate-400">
-                  Agrupe múltiplos Smart Links para auditar tráfego de lançamentos e canais.
-                </p>
-              </div>
-              <button
-                onClick={() => setCreateCampaignOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shadow-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Nova Campanha
-              </button>
-            </div>
-
-            {campaigns.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-400 text-xs">
-                <Layers className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
-                Nenhuma campanha criada. Crie campanhas para organizar o tráfego dos seus afiliados.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {campaigns.map((camp) => (
-                  <div
-                    key={camp.id}
-                    className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between hover:border-slate-700 transition-colors"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-semibold text-white">{camp.name}</h3>
-                        <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-medium border border-emerald-500/20">
-                          {camp.status}
-                        </span>
-                      </div>
-                      {camp.description && (
-                        <p className="text-xs text-slate-400 mb-3">{camp.description}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="text-xs text-slate-500 pt-3 border-t border-slate-800 flex justify-between font-mono mb-3">
-                        <span>Links: {camp._count?.smartLinks || 0}</span>
-                        <span>Conversões: {camp._count?.conversions || 0}</span>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleOpenCampaignDetails(camp.id)}
-                          className="flex-1 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded text-xs font-medium transition-colors cursor-pointer text-center"
-                        >
-                          Ver Detalhes
-                        </button>
-                        <button
-                          onClick={() => handleDeleteCampaign(camp.id)}
-                          className="p-1.5 bg-slate-950 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-800 rounded cursor-pointer"
-                          title="Excluir Campanha"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* =========================================================================
-            ABA 4: PRODUTOS & OFERTAS (Requisito 6)
+            ABA 4: PRODUTOS & OFERTAS (Catálogo & Ciclo de Vida)
             ========================================================================= */}
         {activeTab === "products" && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
               <div>
                 <h2 className="text-base font-semibold text-white">Catálogo de Produtos &amp; Ofertas</h2>
                 <p className="text-xs text-slate-400">
-                  Gerencie produtos da Hotmart, Kiwify ou Eduzz com ofertas e comissões reais.
+                  Gerencie produtos, comissões e ofertas atribuíveis a múltiplas campanhas.
                 </p>
               </div>
-              <button
-                onClick={() => setCreateProductOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shadow-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Cadastrar Produto
-              </button>
+
+              <div className="flex items-center gap-2">
+                {/* Filtro de Status de Produtos */}
+                <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
+                  <button
+                    onClick={() => setProductFilter("all")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      productFilter === "all"
+                        ? "bg-[#4267E9] text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Todos ({products.length})
+                  </button>
+                  <button
+                    onClick={() => setProductFilter("ACTIVE")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      productFilter === "ACTIVE"
+                        ? "bg-emerald-600 text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Ativos ({products.filter((p) => p.status !== "INACTIVE").length})
+                  </button>
+                  <button
+                    onClick={() => setProductFilter("INACTIVE")}
+                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                      productFilter === "INACTIVE"
+                        ? "bg-rose-600 text-white font-medium"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    Desativados ({products.filter((p) => p.status === "INACTIVE").length})
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setCreateProductOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shadow-sm"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Cadastrar Produto
+                </button>
+              </div>
             </div>
 
-            {products.length === 0 ? (
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-400 text-xs">
-                <ShoppingBag className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
-                Nenhum produto cadastrado no catálogo. Adicione ofertas para vinculá-las nos seus Smart Links.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {products.map((prod) => (
-                  <div
-                    key={prod.id}
-                    className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between hover:border-slate-700 transition-colors"
-                  >
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-semibold text-white">{prod.name}</h3>
-                        <span className="text-[10px] bg-[#4267E9]/15 text-[#4267E9] px-2 py-0.5 rounded font-medium border border-[#4267E9]/30">
-                          {prod.platform}
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-400 mb-3 space-y-1">
-                        {prod.offers && prod.offers.length > 0 ? (
-                          <div>
-                            <span className="text-slate-500">Oferta principal:</span> R${" "}
-                            {prod.offers[0].commissionValue?.toFixed(2) || "0,00"}
-                          </div>
-                        ) : (
-                          <div className="text-slate-500">Nenhuma oferta vinculada</div>
-                        )}
-                      </div>
-                    </div>
+            {(() => {
+              const filteredProducts = products.filter((p) => {
+                if (productFilter === "ACTIVE") return p.status !== "INACTIVE";
+                if (productFilter === "INACTIVE") return p.status === "INACTIVE";
+                return true;
+              });
 
-                    <div>
-                      <div className="text-xs text-slate-500 pt-3 border-t border-slate-800 flex justify-between font-mono mb-3">
-                        <span>Ofertas: {prod.offers?.length || 0}</span>
-                        <span>Links: {prod._count?.smartLinks || 0}</span>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleOpenProductDetails(prod.id)}
-                          className="flex-1 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded text-xs font-medium transition-colors cursor-pointer text-center"
-                        >
-                          Gerenciar Ofertas
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(prod.id)}
-                          className="p-1.5 bg-slate-950 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-800 rounded cursor-pointer"
-                          title="Excluir Produto"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
+              if (filteredProducts.length === 0) {
+                return (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center text-slate-400 text-xs">
+                    <ShoppingBag className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
+                    {productFilter === "all"
+                      ? "Nenhum produto cadastrado no catálogo. Adicione ofertas para vinculá-las nos seus Smart Links."
+                      : `Nenhum produto com status "${productFilter === "ACTIVE" ? "Ativo" : "Desativado"}".`}
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredProducts.map((prod) => (
+                    <div
+                      key={prod.id}
+                      className={`rounded-xl border bg-slate-900/50 p-6 flex flex-col justify-between transition-colors ${
+                        prod.status === "INACTIVE"
+                          ? "border-rose-950/60 bg-slate-950/40 opacity-80"
+                          : "border-slate-800 hover:border-slate-700"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-semibold text-white truncate max-w-[150px]">
+                            {prod.name}
+                          </h3>
+                          <div className="flex items-center gap-1.5">
+                            {prod.status === "INACTIVE" ? (
+                              <span className="text-[10px] bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded font-medium border border-rose-500/20">
+                                Desativado
+                              </span>
+                            ) : (
+                              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded font-medium border border-emerald-500/20">
+                                Ativo
+                              </span>
+                            )}
+                            <span className="text-[10px] bg-[#4267E9]/15 text-[#4267E9] px-2 py-0.5 rounded font-medium border border-[#4267E9]/30">
+                              {prod.platform}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-slate-400 mb-3 space-y-1">
+                          {prod.offers && prod.offers.length > 0 ? (
+                            <div>
+                              <span className="text-slate-500">Oferta principal:</span> R${" "}
+                              {prod.offers[0].commissionValue?.toFixed(2) || "0,00"}
+                            </div>
+                          ) : (
+                            <div className="text-slate-500">Nenhuma oferta vinculada</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-[11px] text-slate-400 pt-3 border-t border-slate-800 flex justify-between font-mono mb-3">
+                          <span>Campanhas: <strong className="text-slate-200">{prod.campaignProducts?.length || 0}</strong></span>
+                          <span>Links: <strong className="text-slate-200">{prod._count?.smartLinks || 0}</strong></span>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleOpenProductDetails(prod.id)}
+                            className="flex-1 py-1.5 bg-slate-950 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded text-xs font-medium transition-colors cursor-pointer text-center"
+                          >
+                            Ver Detalhes
+                          </button>
+                          <button
+                            onClick={() => handleToggleProductStatus(prod.id, prod.status)}
+                            disabled={lifecycleActionLoading === prod.id}
+                            className={`p-1.5 rounded border transition-colors cursor-pointer ${
+                              prod.status === "INACTIVE"
+                                ? "bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-400 border-emerald-800/80"
+                                : "bg-slate-950 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border-slate-800"
+                            }`}
+                            title={prod.status === "INACTIVE" ? "Reativar Produto" : "Desativar Produto"}
+                          >
+                            {prod.status === "INACTIVE" ? (
+                              <Play className="w-3.5 h-3.5" />
+                            ) : (
+                              <Power className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(prod.id)}
+                            className="p-1.5 bg-slate-950 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-800 rounded cursor-pointer"
+                            title="Excluir Produto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -1737,11 +2212,13 @@ function DashboardContent() {
                       className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-100 outline-none focus:border-[#4267E9]"
                     >
                       <option value="">Nenhum produto</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.platform})
-                        </option>
-                      ))}
+                      {products
+                        .filter((p) => p.status !== "INACTIVE")
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.platform})
+                          </option>
+                        ))}
                     </select>
                   </div>
 
@@ -1854,7 +2331,7 @@ function DashboardContent() {
                   <option value="">Sem campanha (Avulso)</option>
                   {campaigns.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}
+                      {c.name} {c.status === "ENDED" ? "(Encerrada)" : ""}
                     </option>
                   ))}
                 </select>
@@ -1874,11 +2351,13 @@ function DashboardContent() {
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-100 outline-none focus:border-[#4267E9]"
                   >
                     <option value="">Nenhum</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
+                    {products
+                      .filter((p) => p.status !== "INACTIVE" || p.id === editProductId)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} {p.status === "INACTIVE" ? "(Desativado)" : ""}
+                        </option>
+                      ))}
                   </select>
                 </div>
 
@@ -1924,74 +2403,231 @@ function DashboardContent() {
       )}
 
       {/* =========================================================================
-          MODAL: DETALHES DA CAMPANHA (Requisito 5)
+          MODAL: DETALHES DA CAMPANHA (Requisito 5 & Ciclo de Vida)
           ========================================================================= */}
       {campaignDetail && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 max-w-xl w-full shadow-2xl max-h-[85vh] flex flex-col">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 max-w-2xl w-full shadow-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
               <div>
-                <h3 className="text-base font-semibold text-white">
-                  Detalhes da Campanha: {campaignDetail.campaign.name}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold text-white">
+                    {campaignDetail.campaign.name}
+                  </h3>
+                  {campaignDetail.campaign.status === "ENDED" ? (
+                    <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-medium border border-slate-700 flex items-center gap-1">
+                      <Power className="w-2.5 h-2.5" /> Encerrada
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-medium border border-emerald-500/20 flex items-center gap-1">
+                      <CheckCircle2 className="w-2.5 h-2.5" /> Ativa
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {campaignDetail.campaign.description || "Sem descrição informada."}
                 </p>
               </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    handleOpenEditCampaign(campaignDetail.campaign);
+                  }}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg border border-slate-700 transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                  Editar Associações
+                </button>
+                <button
+                  onClick={() => setCampaignDetail(null)}
+                  className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Ação de Ciclo de Vida */}
+            <div className="py-2.5 px-3 my-2 rounded-lg bg-slate-950/70 border border-slate-800/80 flex items-center justify-between text-xs shrink-0">
+              <span className="text-slate-400">
+                {campaignDetail.campaign.status === "ENDED"
+                  ? "Esta campanha está encerrada. Links e métricas continuam preservados no histórico."
+                  : "Campanha em andamento. Links e métricas ativas."}
+              </span>
               <button
-                onClick={() => setCampaignDetail(null)}
-                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                onClick={() =>
+                  handleToggleCampaignStatus(
+                    campaignDetail.campaign.id,
+                    campaignDetail.campaign.status
+                  )
+                }
+                disabled={lifecycleActionLoading === campaignDetail.campaign.id}
+                className={`px-3 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  campaignDetail.campaign.status === "ENDED"
+                    ? "bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border-emerald-800"
+                    : "bg-amber-950/50 hover:bg-amber-900/60 text-amber-300 border-amber-800"
+                }`}
               >
-                <X className="w-4 h-4" />
+                {campaignDetail.campaign.status === "ENDED" ? (
+                  <>
+                    <Play className="w-3.5 h-3.5" />
+                    Reiniciar Campanha
+                  </>
+                ) : (
+                  <>
+                    <Power className="w-3.5 h-3.5" />
+                    Encerrar Campanha
+                  </>
+                )}
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 py-3 border-b border-slate-800 text-center font-mono">
-              <div className="bg-slate-950 p-2 rounded border border-slate-800">
-                <span className="block text-[10px] text-slate-500">Links</span>
-                <span className="text-sm font-bold text-white">
-                  {campaignDetail.metrics.totalLinks}
-                </span>
-              </div>
-              <div className="bg-slate-950 p-2 rounded border border-slate-800">
-                <span className="block text-[10px] text-slate-500">Cliques Agregados</span>
-                <span className="text-sm font-bold text-[#4267E9]">
+            {/* Grid de Métricas Reais Consolidadas */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 py-3 border-b border-slate-800 text-center font-mono shrink-0">
+              <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+                <span className="block text-[10px] text-slate-500">Cliques Totais</span>
+                <span className="text-base font-bold text-white">
                   {campaignDetail.metrics.totalClicks}
                 </span>
               </div>
-              <div className="bg-slate-950 p-2 rounded border border-slate-800">
+              <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+                <span className="block text-[10px] text-slate-500">Cliques Únicos</span>
+                <span className="text-base font-bold text-[#4267E9]">
+                  {campaignDetail.metrics.uniqueClicks ?? campaignDetail.metrics.totalClicks}
+                </span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
                 <span className="block text-[10px] text-slate-500">QR Scans</span>
-                <span className="text-sm font-bold text-sky-400">
+                <span className="text-base font-bold text-sky-400">
                   {campaignDetail.metrics.totalQrScans}
+                </span>
+              </div>
+              <div className="bg-slate-950 p-2.5 rounded border border-slate-800">
+                <span className="block text-[10px] text-slate-500">Comissão Confirmada</span>
+                <span className="text-base font-bold text-emerald-400">
+                  R$ {campaignDetail.metrics.confirmedCommission?.toFixed(2) || "0.00"}
                 </span>
               </div>
             </div>
 
-            <div className="overflow-y-auto flex-1 py-3 space-y-2">
-              <h4 className="text-xs font-medium text-slate-300">
-                Smart Links Associados ({campaignDetail.campaign.smartLinks?.length || 0}):
-              </h4>
-              {!campaignDetail.campaign.smartLinks?.length ? (
-                <div className="text-xs text-slate-500 py-6 text-center">
-                  Nenhum Smart Link associado a esta campanha ainda.
-                </div>
-              ) : (
-                campaignDetail.campaign.smartLinks.map((l) => (
-                  <div
-                    key={l.id}
-                    className="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center justify-between text-xs font-mono"
+            <div className="overflow-y-auto flex-1 py-3 space-y-4 pr-1">
+              {/* Produtos Participantes da Campanha */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
+                    Produtos Participantes ({campaignDetail.campaign.campaignProducts?.length || 0}):
+                  </h4>
+                  <button
+                    onClick={() => handleOpenEditCampaign(campaignDetail.campaign)}
+                    className="text-[11px] text-[#4267E9] hover:underline cursor-pointer"
                   >
-                    <div>
-                      <span className="text-white font-semibold">/{l.slug}</span>
-                      {l.title && <span className="text-slate-400 ml-1">({l.title})</span>}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span>{l.clickCount} cliques</span>
-                      <span className="text-sky-400">{l.qrScanCount} scans</span>
-                    </div>
+                    + Vincular Produtos
+                  </button>
+                </div>
+
+                {!campaignDetail.campaign.campaignProducts?.length ? (
+                  <div className="text-xs text-slate-500 p-3 bg-slate-950/60 rounded border border-dashed border-slate-800 text-center">
+                    Nenhum produto associado diretamente a esta campanha ainda.
                   </div>
-                ))
-              )}
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {campaignDetail.campaign.campaignProducts.map((cp) => (
+                      <div
+                        key={cp.product.id}
+                        className="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center justify-between text-xs"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-semibold text-white truncate block">
+                            {cp.product.name}
+                          </span>
+                          <span className="text-[10px] text-[#4267E9] font-mono">
+                            {cp.product.platform}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {cp.product.status === "INACTIVE" && (
+                            <span className="text-[9px] bg-rose-500/10 text-rose-400 px-1 py-0.2 rounded border border-rose-500/20">
+                              Desativado
+                            </span>
+                          )}
+                          <button
+                            onClick={() => {
+                              setCampaignDetail(null);
+                              handleOpenProductDetails(cp.product.id);
+                            }}
+                            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded cursor-pointer"
+                            title="Ver detalhes do produto"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Smart Links Associados */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-[#4267E9]" />
+                    Smart Links Associados ({campaignDetail.campaign.smartLinks?.length || 0}):
+                  </h4>
+                  <button
+                    onClick={() => handleOpenEditCampaign(campaignDetail.campaign)}
+                    className="text-[11px] text-[#4267E9] hover:underline cursor-pointer"
+                  >
+                    + Vincular Links
+                  </button>
+                </div>
+
+                {!campaignDetail.campaign.smartLinks?.length ? (
+                  <div className="text-xs text-slate-500 p-3 bg-slate-950/60 rounded border border-dashed border-slate-800 text-center">
+                    Nenhum Smart Link associado a esta campanha ainda.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {campaignDetail.campaign.smartLinks.map((l) => (
+                      <div
+                        key={l.id}
+                        className="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center justify-between text-xs font-mono"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-white font-semibold">/{l.slug}</span>
+                            {l.title && <span className="text-slate-400 truncate">({l.title})</span>}
+                            {l.status === "PAUSED" && (
+                              <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.2 rounded border border-amber-500/30 font-sans">
+                                Pausado
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-500 truncate block mt-0.5">
+                            {l.destinationUrl}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0 ml-2">
+                          <span className="text-slate-300 font-semibold">{l.clickCount} cliques</span>
+                          <span className="text-sky-400">{l.qrScanCount} scans</span>
+                          <button
+                            onClick={() => handleCopy(l.slug, l.id)}
+                            className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded cursor-pointer"
+                            title="Copiar link"
+                          >
+                            {copiedId === l.id ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5 text-[#4267E9]" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="pt-3 border-t border-slate-800 flex justify-end shrink-0">
@@ -2008,16 +2644,27 @@ function DashboardContent() {
       )}
 
       {/* =========================================================================
-          MODAL: DETALHES DO PRODUTO & OFERTAS (Requisito 6)
+          MODAL: DETALHES DO PRODUTO & OFERTAS (Requisito 6 & Ciclo de Vida)
           ========================================================================= */}
       {productDetail && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 max-w-xl w-full shadow-2xl max-h-[85vh] flex flex-col">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
               <div>
-                <h3 className="text-base font-semibold text-white">
-                  Produto: {productDetail.product.name}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-semibold text-white">
+                    {productDetail.product.name}
+                  </h3>
+                  {productDetail.product.status === "INACTIVE" ? (
+                    <span className="text-[10px] bg-rose-500/10 text-rose-400 px-2 py-0.5 rounded font-medium border border-rose-500/20">
+                      Desativado
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded font-medium border border-emerald-500/20">
+                      Ativo
+                    </span>
+                  )}
+                </div>
                 <span className="text-xs text-[#4267E9]">
                   Plataforma: {productDetail.product.platform}
                 </span>
@@ -2030,7 +2677,43 @@ function DashboardContent() {
               </button>
             </div>
 
-            <div className="grid grid-cols-4 gap-2 py-3 border-b border-slate-800 text-center font-mono">
+            {/* Ação de Ciclo de Vida: Desativar / Reativar */}
+            <div className="py-2.5 px-3 my-2 rounded-lg bg-slate-950/70 border border-slate-800/80 flex items-center justify-between text-xs shrink-0">
+              <span className="text-slate-400">
+                {productDetail.product.status === "INACTIVE"
+                  ? "Produto desativado para novas campanhas. Links existentes continuam ativos."
+                  : "Produto ativo e disponível para seleção em campanhas."}
+              </span>
+              <button
+                onClick={() =>
+                  handleToggleProductStatus(
+                    productDetail.product.id,
+                    productDetail.product.status
+                  )
+                }
+                disabled={lifecycleActionLoading === productDetail.product.id}
+                className={`px-3 py-1 text-xs font-medium rounded-md border transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  productDetail.product.status === "INACTIVE"
+                    ? "bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border-emerald-800"
+                    : "bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border-rose-800"
+                }`}
+              >
+                {productDetail.product.status === "INACTIVE" ? (
+                  <>
+                    <Play className="w-3.5 h-3.5" />
+                    Reativar Produto
+                  </>
+                ) : (
+                  <>
+                    <Power className="w-3.5 h-3.5" />
+                    Desativar Produto
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Grid de Métricas Consolidadas */}
+            <div className="grid grid-cols-4 gap-2 py-3 border-b border-slate-800 text-center font-mono shrink-0">
               <div className="bg-slate-950 p-2 rounded border border-slate-800">
                 <span className="block text-[10px] text-slate-500">Ofertas</span>
                 <span className="text-sm font-bold text-white">
@@ -2052,46 +2735,93 @@ function DashboardContent() {
               <div className="bg-slate-950 p-2 rounded border border-slate-800">
                 <span className="block text-[10px] text-slate-500">Confirmada</span>
                 <span className="text-sm font-bold text-emerald-400">
-                  R$ {productDetail.metrics.confirmedCommission.toFixed(2)}
+                  R$ {productDetail.metrics.confirmedCommission?.toFixed(2) || "0.00"}
                 </span>
               </div>
             </div>
 
-            <div className="overflow-y-auto flex-1 py-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-medium text-slate-300">Ofertas Disponíveis:</h4>
-                <button
-                  onClick={() => {
-                    setAddOfferProductId(productDetail.product.id);
-                  }}
-                  className="px-2 py-1 bg-[#4267E9] text-white text-[11px] font-medium rounded hover:bg-[#3556D4] cursor-pointer flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" /> Adicionar Oferta
-                </button>
+            <div className="overflow-y-auto flex-1 py-3 space-y-4 pr-1">
+              {/* Campanhas em que este produto participa */}
+              <div>
+                <h4 className="text-xs font-semibold text-slate-200 mb-2 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-emerald-400" />
+                  Campanhas Participantes ({productDetail.product.campaignProducts?.length || 0}):
+                </h4>
+                {!productDetail.product.campaignProducts?.length ? (
+                  <div className="text-xs text-slate-500 p-3 bg-slate-950/60 rounded border border-dashed border-slate-800 text-center">
+                    Este produto ainda não foi vinculado a nenhuma campanha.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {productDetail.product.campaignProducts.map((cp) => (
+                      <div
+                        key={cp.campaign.id}
+                        className="p-2.5 bg-slate-950 rounded border border-slate-800 flex items-center justify-between text-xs"
+                      >
+                        <div>
+                          <span className="font-semibold text-white block">
+                            {cp.campaign.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Status: {cp.campaign.status === "ENDED" ? "Encerrada" : "Ativa"}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setProductDetail(null);
+                            handleOpenCampaignDetails(cp.campaign.id);
+                          }}
+                          className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded cursor-pointer"
+                          title="Ver detalhes da campanha"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {!productDetail.product.offers?.length ? (
-                <div className="text-xs text-slate-500 py-4 text-center">
-                  Nenhuma oferta cadastrada para este produto.
-                </div>
-              ) : (
-                productDetail.product.offers.map((off) => (
-                  <div
-                    key={off.id}
-                    className="p-3 bg-slate-950 rounded border border-slate-800 space-y-1 text-xs"
+              {/* Ofertas Disponíveis */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-sky-400" />
+                    Ofertas &amp; Checkouts Cadastrados ({productDetail.product.offers?.length || 0}):
+                  </h4>
+                  <button
+                    onClick={() => {
+                      setAddOfferProductId(productDetail.product.id);
+                    }}
+                    className="px-2 py-1 bg-[#4267E9] text-white text-[11px] font-medium rounded hover:bg-[#3556D4] cursor-pointer flex items-center gap-1"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white">{off.name}</span>
-                      <span className="text-emerald-400 font-mono font-medium">
-                        Comissão: R$ {off.commissionValue?.toFixed(2) || "0.00"}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-400 font-mono truncate">
-                      {off.affiliateUrl}
-                    </div>
+                    <Plus className="w-3 h-3" /> Adicionar Oferta
+                  </button>
+                </div>
+
+                {!productDetail.product.offers?.length ? (
+                  <div className="text-xs text-slate-500 p-3 bg-slate-950/60 rounded border border-dashed border-slate-800 text-center">
+                    Nenhuma oferta cadastrada para este produto.
                   </div>
-                ))
-              )}
+                ) : (
+                  productDetail.product.offers.map((off) => (
+                    <div
+                      key={off.id}
+                      className="p-3 bg-slate-950 rounded border border-slate-800 space-y-1 text-xs mb-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-white">{off.name}</span>
+                        <span className="text-emerald-400 font-mono font-medium">
+                          Comissão: R$ {off.commissionValue?.toFixed(2) || "0.00"}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono truncate">
+                        {off.affiliateUrl}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
             <div className="pt-3 border-t border-slate-800 flex justify-end shrink-0">
@@ -2334,17 +3064,34 @@ function DashboardContent() {
       )}
 
       {/* =========================================================================
-          MODAL: CRIAR CAMPANHA
+          MODAL: CRIAR / EDITAR CAMPANHA & ASSOCIAÇÕES (Requisito 4 & 5)
           ========================================================================= */}
       {createCampaignOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 max-w-md w-full shadow-lg">
-            <h3 className="text-base font-semibold text-white mb-1">Nova Campanha</h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Agrupe links de múltiplos canais para acompanhar o desempenho geral.
-            </p>
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 max-w-xl w-full shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800 shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-white">
+                  {editingCampaign ? "Editar Campanha & Associações" : "Nova Campanha"}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {editingCampaign
+                    ? "Altere os dados, associe produtos do catálogo e Smart Links a esta iniciativa."
+                    : "Agrupe múltiplos produtos e links para auditar tráfego de lançamentos e canais."}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setCreateCampaignOpen(false);
+                  setEditingCampaign(null);
+                }}
+                className="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <form onSubmit={handleCreateCampaign} className="space-y-4">
+            <form onSubmit={handleSaveCampaign} className="overflow-y-auto flex-1 py-4 space-y-4 pr-1">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1">
                   Nome da Campanha *
@@ -2354,7 +3101,7 @@ function DashboardContent() {
                   required
                   value={campName}
                   onChange={(e) => setCampName(e.target.value)}
-                  placeholder="Black Friday 2026"
+                  placeholder="Ex: Black Friday 2026 / Lançamento Tráfego Pago"
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-100 outline-none focus:border-[#4267E9]"
                 />
               </div>
@@ -2366,25 +3113,168 @@ function DashboardContent() {
                 <textarea
                   value={campDescription}
                   onChange={(e) => setCampDescription(e.target.value)}
-                  placeholder="Oferta especial para stories e grupos de WhatsApp."
+                  placeholder="Estratégia e contexto para divulgação de ofertas."
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-100 outline-none focus:border-[#4267E9]"
-                  rows={3}
+                  rows={2}
                 />
               </div>
 
-              <div className="flex gap-2 pt-2">
+              {editingCampaign && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Estado do Ciclo de Vida
+                  </label>
+                  <select
+                    value={campStatus}
+                    onChange={(e) => setCampStatus(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-slate-100 outline-none focus:border-[#4267E9]"
+                  >
+                    <option value="ACTIVE">Ativa (Em andamento)</option>
+                    <option value="ENDED">Encerrada (Histórico preservado)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Seleção Múltipla de Produtos (Somente produtos ativos podem ser associados) */}
+              <div className="pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <ShoppingBag className="w-3.5 h-3.5 text-amber-400" />
+                    Produtos Participantes ({campProductIds.length} selecionado{campProductIds.length === 1 ? "" : "s"})
+                  </label>
+                  <span className="text-[11px] text-slate-500">
+                    Apenas produtos ativos
+                  </span>
+                </div>
+
+                {(() => {
+                  const activeProds = products.filter((p) => p.status !== "INACTIVE");
+                  if (activeProds.length === 0) {
+                    return (
+                      <div className="p-3 bg-slate-950/60 rounded-lg border border-dashed border-slate-800 text-center text-xs text-slate-400">
+                        Nenhum produto ativo disponível. Cadastre ou reative produtos no catálogo.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
+                      {activeProds.map((prod) => {
+                        const isSelected = campProductIds.includes(prod.id);
+                        return (
+                          <div
+                            key={prod.id}
+                            onClick={() => handleToggleCampProduct(prod.id)}
+                            className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-all flex items-center justify-between ${
+                              isSelected
+                                ? "bg-[#4267E9]/15 border-[#4267E9] text-white"
+                                : "bg-slate-950/80 border-slate-800 text-slate-300 hover:border-slate-700"
+                            }`}
+                          >
+                            <div className="min-w-0 flex-1 pr-2">
+                              <span className="font-medium truncate block">{prod.name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                {prod.platform}
+                              </span>
+                            </div>
+                            <div
+                              className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${
+                                isSelected
+                                  ? "bg-[#4267E9] border-[#4267E9] text-white"
+                                  : "border-slate-700 bg-slate-900"
+                              }`}
+                            >
+                              {isSelected && <Check className="w-3 h-3" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Seleção de Smart Links para Atribuição */}
+              <div className="pt-2 border-t border-slate-800/80">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-[#4267E9]" />
+                    Smart Links Vinculados ({campLinkIds.length} selecionado{campLinkIds.length === 1 ? "" : "s"})
+                  </label>
+                  <span className="text-[11px] text-slate-500">
+                    Atribuição inequívoca
+                  </span>
+                </div>
+
+                {links.length === 0 ? (
+                  <div className="p-3 bg-slate-950/60 rounded-lg border border-dashed border-slate-800 text-center text-xs text-slate-400">
+                    Nenhum Smart Link criado. Crie links na aba Smart Links para vinculá-los.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1 font-mono text-xs">
+                    {links.map((link) => {
+                      const isSelected = campLinkIds.includes(link.id);
+                      const isOtherCamp = link.campaign && (!editingCampaign || link.campaign.id !== editingCampaign.id);
+                      return (
+                        <div
+                          key={link.id}
+                          onClick={() => handleToggleCampLink(link.id)}
+                          className={`p-2 rounded-lg border cursor-pointer transition-all flex items-center justify-between ${
+                            isSelected
+                              ? "bg-[#4267E9]/15 border-[#4267E9] text-white"
+                              : "bg-slate-950/80 border-slate-800 text-slate-300 hover:border-slate-700"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-slate-200">/{link.slug}</span>
+                              {link.title && (
+                                <span className="text-slate-400 text-[11px] font-sans truncate">
+                                  ({link.title})
+                                </span>
+                              )}
+                              {isOtherCamp && (
+                                <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.2 rounded font-sans">
+                                  Em: {link.campaign?.name}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-500 truncate block mt-0.5">
+                              {link.destinationUrl}
+                            </span>
+                          </div>
+                          <div
+                            className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border ${
+                              isSelected
+                                ? "bg-[#4267E9] border-[#4267E9] text-white"
+                                : "border-slate-700 bg-slate-900"
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3 h-3" />}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-3 border-t border-slate-800 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setCreateCampaignOpen(false)}
-                  className="flex-1 py-2 bg-slate-800 text-slate-300 text-xs font-medium rounded-lg cursor-pointer"
+                  onClick={() => {
+                    setCreateCampaignOpen(false);
+                    setEditingCampaign(null);
+                  }}
+                  className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg cursor-pointer transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg cursor-pointer"
+                  disabled={campLoading}
+                  className="flex-1 py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg cursor-pointer transition-colors"
                 >
-                  Criar Campanha
+                  {campLoading ? "Salvando..." : editingCampaign ? "Salvar Alterações" : "Criar Campanha"}
                 </button>
               </div>
             </form>

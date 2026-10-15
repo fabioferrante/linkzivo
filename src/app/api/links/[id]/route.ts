@@ -81,6 +81,41 @@ export async function PATCH(
       urlChanged = true;
     }
 
+    if (status && !["ACTIVE", "PAUSED", "EXPIRED", "SUSPENDED"].includes(status)) {
+      return NextResponse.json(
+        { error: "Status inválido. Use ACTIVE ou PAUSED." },
+        { status: 400 }
+      );
+    }
+
+    // Se campaignId fornecido, valida propriedade no workspace
+    if (campaignId) {
+      const camp = await db.campaign.findFirst({
+        where: { id: campaignId, workspaceId: existingLink.workspaceId },
+        select: { id: true },
+      });
+      if (!camp) {
+        return NextResponse.json(
+          { error: "Campanha informada não pertence ao mesmo workspace." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Se productId fornecido, valida propriedade no workspace
+    if (productId) {
+      const prod = await db.product.findFirst({
+        where: { id: productId, workspaceId: existingLink.workspaceId },
+        select: { id: true },
+      });
+      if (!prod) {
+        return NextResponse.json(
+          { error: "Produto informado não pertence ao mesmo workspace." },
+          { status: 400 }
+        );
+      }
+    }
+
     // Executa update e grava histórico se a URL mudou
     const updated = await db.$transaction(async (tx) => {
       if (urlChanged) {
