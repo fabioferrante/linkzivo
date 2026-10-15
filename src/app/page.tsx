@@ -35,7 +35,7 @@ export default function Home() {
 
   const checkAuth = useCallback(async () => {
     try {
-      const res = await fetch("/api/auth");
+      const res = await fetch("/api/auth", { cache: "no-store" });
       const data = await res.json();
       if (data.authenticated && data.user) {
         setUser(data.user);
@@ -51,7 +51,7 @@ export default function Home() {
     let active = true;
     (async () => {
       try {
-        const res = await fetch("/api/auth");
+        const res = await fetch("/api/auth", { cache: "no-store" });
         const data = await res.json();
         if (active) {
           if (data.authenticated && data.user) {
@@ -96,7 +96,7 @@ export default function Home() {
 
             {/* Formulário Principal de Encurtamento */}
             <div id="encurtador" className="mb-16">
-              <ShortenerForm onLinkCreated={checkAuth} />
+              <ShortenerForm user={user} onLinkCreated={checkAuth} />
             </div>
 
             {/* Ciclo de Operação em 6 Fases (Cards em rounded-xl, escala de 4px) */}
@@ -583,7 +583,9 @@ export default function Home() {
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
-        onSuccess={checkAuth}
+        onSuccess={() => {
+          window.location.href = "/dashboard";
+        }}
       />
     </div>
   );

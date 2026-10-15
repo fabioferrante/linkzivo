@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -30,7 +30,38 @@ interface CreatedLinkData {
   title: string | null;
 }
 
-export function ShortenerForm({ onLinkCreated }: { onLinkCreated?: () => void }) {
+export function ShortenerForm({
+  onLinkCreated,
+  user: propUser,
+}: {
+  onLinkCreated?: () => void;
+  user?: { email?: string; id?: string; workspacePlan?: string } | null;
+}) {
+  const [currentUser, setCurrentUser] = useState(propUser);
+
+  useEffect(() => {
+    setCurrentUser(propUser);
+  }, [propUser]);
+
+  useEffect(() => {
+    if (propUser === undefined) {
+      let isMounted = true;
+      fetch("/api/auth", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (isMounted) {
+            setCurrentUser(data.authenticated && data.user ? data.user : null);
+          }
+        })
+        .catch(() => {
+          if (isMounted) setCurrentUser(null);
+        });
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [propUser]);
+
   const [url, setUrl] = useState("");
   const [customSlug, setCustomSlug] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -385,7 +416,12 @@ export function ShortenerForm({ onLinkCreated }: { onLinkCreated?: () => void })
                 </button>
 
                 <Link
-                  href="/dashboard"
+                  href={currentUser ? "/dashboard?tab=analytics" : "/#planos"}
+                  title={
+                    currentUser
+                      ? "Ver telemetria e conversões no Painel"
+                      : "Contrate um plano para acompanhar métricas e Analytics em tempo real"
+                  }
                   className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-medium rounded-lg border border-slate-800 transition-colors cursor-pointer"
                 >
                   <BarChart2 className="w-3.5 h-3.5 text-emerald-400" />

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useTransition, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/Navbar";
 import { AuthModal } from "@/components/AuthModal";
 import {
@@ -143,7 +144,10 @@ interface ProductItem {
   };
 }
 
-export default function DashboardPage() {
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+
   const [user, setUser] = useState<{
     id: string;
     email: string;
@@ -153,9 +157,55 @@ export default function DashboardPage() {
 
   const [activeTab, setActiveTab] = useState<
     "overview" | "links" | "campaigns" | "products" | "analytics"
-  >("overview");
+  >(() => {
+    if (
+      tabParam === "campaigns" ||
+      tabParam === "analytics" ||
+      tabParam === "links" ||
+      tabParam === "products"
+    ) {
+      return tabParam;
+    }
+    return "overview";
+  });
+
+  // Sincroniza activeTab quando o parâmetro da URL mudar (ex: ao clicar nos botões da Navbar)
+  useEffect(() => {
+    if (
+      tabParam === "campaigns" ||
+      tabParam === "analytics" ||
+      tabParam === "links" ||
+      tabParam === "products" ||
+      tabParam === "overview"
+    ) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
+  const handleTabChange = (
+    newTab: "overview" | "links" | "campaigns" | "products" | "analytics"
+  ) => {
+    setActiveTab(newTab);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (newTab === "overview") {
+        url.searchParams.delete("tab");
+      } else {
+        url.searchParams.set("tab", newTab);
+      }
+      window.history.replaceState(null, "", url.toString());
+    }
+  };
 
   const [period, setPeriod] = useState<"7d" | "30d" | "90d" | "all">("30d");
+
+  // Estado para destaque do dia no gráfico de telemetria
+  const [hoveredDay, setHoveredDay] = useState<{
+    date: string;
+    label: string;
+    clicks: number;
+    qrScans: number;
+  } | null>(null);
 
   // Dados da conta
   const [links, setLinks] = useState<SmartLinkItem[]>([]);
@@ -249,11 +299,11 @@ export default function DashboardPage() {
   const [campName, setCampName] = useState("");
   const [campDescription, setCampDescription] = useState("");
 
-  // Carregamento inicial de todos os dados essenciais
+  // Carregamento inicial de todos os dados essenciais com no-store para evitar falsos deslogados
   const fetchAllData = async (selectedPeriod = period) => {
     setError(null);
     try {
-      const authRes = await fetch("/api/auth");
+      const authRes = await fetch("/api/auth", { cache: "no-store" });
       const authData = await authRes.json();
       if (!authData.authenticated || !authData.user) {
         setUser(null);
@@ -760,7 +810,7 @@ export default function DashboardPage() {
         {/* Barra de Navegação por Abas (Mantendo as 4 abas originais + Visão Geral Consolidada) */}
         <div className="border-b border-slate-800 flex items-center gap-6 mb-6 overflow-x-auto scrollbar-none">
           <button
-            onClick={() => setActiveTab("overview")}
+            onClick={() => handleTabChange("overview")}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               activeTab === "overview"
                 ? "border-[#4267E9] text-white"
@@ -772,7 +822,7 @@ export default function DashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab("links")}
+            onClick={() => handleTabChange("links")}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               activeTab === "links"
                 ? "border-[#4267E9] text-white"
@@ -784,7 +834,7 @@ export default function DashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab("campaigns")}
+            onClick={() => handleTabChange("campaigns")}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               activeTab === "campaigns"
                 ? "border-[#4267E9] text-white"
@@ -796,7 +846,7 @@ export default function DashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab("products")}
+            onClick={() => handleTabChange("products")}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               activeTab === "products"
                 ? "border-[#4267E9] text-white"
@@ -808,7 +858,7 @@ export default function DashboardPage() {
           </button>
 
           <button
-            onClick={() => setActiveTab("analytics")}
+            onClick={() => handleTabChange("analytics")}
             className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
               activeTab === "analytics"
                 ? "border-[#4267E9] text-white"
@@ -838,14 +888,26 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-4 text-xs font-mono">
-                  <span className="flex items-center gap-1.5 text-slate-300">
-                    <span className="w-3 h-3 rounded bg-[#4267E9]" />
-                    Cliques Diretos
-                  </span>
-                  <span className="flex items-center gap-1.5 text-sky-400">
-                    <span className="w-3 h-3 rounded bg-sky-400" />
-                    QR Scans
-                  </span>
+                  {hoveredDay ? (
+                    <div className="flex items-center gap-2 px-3 py-1 rounded bg-[#4267E9]/15 border border-[#4267E9]/40 text-xs font-mono text-white animate-fade-in shadow-sm">
+                      <span className="text-[#4267E9] font-semibold">{hoveredDay.label}:</span>
+                      <span className="text-white font-bold">{hoveredDay.clicks} cliques</span>
+                      {hoveredDay.qrScans > 0 && (
+                        <span className="text-sky-400 font-semibold">({hoveredDay.qrScans} QR)</span>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <span className="flex items-center gap-1.5 text-slate-300">
+                        <span className="w-3 h-3 rounded bg-[#4267E9]" />
+                        Cliques Diretos
+                      </span>
+                      <span className="flex items-center gap-1.5 text-sky-400">
+                        <span className="w-3 h-3 rounded bg-sky-400" />
+                        QR Scans
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -865,7 +927,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <div className="h-48 flex items-end gap-1.5 sm:gap-2 pt-6 pb-2 px-1 overflow-x-auto">
+                  <div className="h-56 flex items-end gap-1.5 sm:gap-2 pt-14 pb-2 px-1 overflow-x-auto relative">
                     {(() => {
                       const maxClicks = Math.max(
                         ...analytics.dailyTimeline.map((d) => d.clicks),
@@ -877,10 +939,12 @@ export default function DashboardPage() {
                         return (
                           <div
                             key={idx}
-                            className="flex-1 flex flex-col items-center justify-end h-full min-w-[20px] group relative"
+                            onMouseEnter={() => setHoveredDay(d)}
+                            onMouseLeave={() => setHoveredDay(null)}
+                            className="flex-1 flex flex-col items-center justify-end h-full min-w-[20px] group relative group-hover:z-30 cursor-pointer"
                           >
-                            {/* Tooltip ao passar o mouse */}
-                            <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950 border border-slate-800 text-[10px] text-white font-mono px-2 py-1 rounded shadow-lg pointer-events-none whitespace-nowrap z-20">
+                            {/* Tooltip ao passar o mouse: posicionado com folga garantida no topo interno do container para evitar corte */}
+                            <div className="absolute top-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950/95 border border-slate-700 text-[11px] text-white font-mono px-2.5 py-1 rounded-md shadow-2xl pointer-events-none whitespace-nowrap z-30">
                               {d.label}: {d.clicks} clique(s) {isQr ? `(${d.qrScans} QR)` : ""}
                             </div>
 
@@ -889,7 +953,7 @@ export default function DashboardPage() {
                               style={{ height: `${heightPct}%` }}
                               className={`w-full rounded-t transition-all ${
                                 isQr
-                                  ? "bg-gradient-to-t from-[#4267E9] to-sky-400"
+                                  ? "bg-gradient-to-t from-[#4267E9] to-sky-400 group-hover:brightness-125"
                                   : "bg-[#4267E9] hover:bg-[#5b7ef8]"
                               }`}
                             />
@@ -962,8 +1026,8 @@ export default function DashboardPage() {
                     Desempenho de Campanhas
                   </h3>
                   <button
-                    onClick={() => setActiveTab("campaigns")}
-                    className="text-xs text-[#4267E9] hover:underline flex items-center gap-1"
+                    onClick={() => handleTabChange("campaigns")}
+                    className="text-xs text-[#4267E9] hover:underline flex items-center gap-1 cursor-pointer"
                   >
                     Ver todas <ChevronRight className="w-3 h-3" />
                   </button>
@@ -1017,8 +1081,8 @@ export default function DashboardPage() {
                   Produtos &amp; Ofertas no Período
                 </h3>
                 <button
-                  onClick={() => setActiveTab("products")}
-                  className="text-xs text-[#4267E9] hover:underline flex items-center gap-1"
+                  onClick={() => handleTabChange("products")}
+                  className="text-xs text-[#4267E9] hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   Gerenciar catálogo <ChevronRight className="w-3 h-3" />
                 </button>
@@ -1066,8 +1130,8 @@ export default function DashboardPage() {
                   Smart Links de Maior Atividade
                 </h3>
                 <button
-                  onClick={() => setActiveTab("links")}
-                  className="text-xs text-[#4267E9] hover:underline flex items-center gap-1"
+                  onClick={() => handleTabChange("links")}
+                  className="text-xs text-[#4267E9] hover:underline flex items-center gap-1 cursor-pointer"
                 >
                   Ver todos os {links.length} links <ChevronRight className="w-3 h-3" />
                 </button>
@@ -2440,5 +2504,22 @@ export default function DashboardPage() {
         onSuccess={() => fetchAllData(period)}
       />
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#0B0F19] text-slate-100 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 rounded-full border-2 border-[#4267E9] border-t-transparent animate-spin" />
+            <span className="text-xs text-slate-400 font-mono">Carregando painel de operações...</span>
+          </div>
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }

@@ -1,16 +1,52 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Link2, BarChart3, Layers, Sparkles, UserCheck, LogOut } from "lucide-react";
 
+interface NavbarUser {
+  name?: string | null;
+  email: string;
+  workspacePlan: string;
+}
+
 interface NavbarProps {
-  user?: { name?: string | null; email: string; workspacePlan: string } | null;
+  user?: NavbarUser | null;
   onOpenAuth?: () => void;
   onLogout?: () => void;
 }
 
-export function Navbar({ user, onOpenAuth, onLogout }: NavbarProps) {
+export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
+  // Estado local para garantir sincronia imediata caso a prop ainda não tenha resolvido
+  const [currentUser, setCurrentUser] = useState<NavbarUser | null | undefined>(propUser);
+
+  useEffect(() => {
+    setCurrentUser(propUser);
+  }, [propUser]);
+
+  // Se propUser for explicitamente indefinido (ex: componente montado sem prop do pai), checa a sessão fresca
+  useEffect(() => {
+    if (propUser === undefined) {
+      let isMounted = true;
+      fetch("/api/auth", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((data) => {
+          if (isMounted && data.authenticated && data.user) {
+            setCurrentUser(data.user);
+          } else if (isMounted) {
+            setCurrentUser(null);
+          }
+        })
+        .catch(() => {
+          if (isMounted) setCurrentUser(null);
+        });
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [propUser]);
+
   const handleLogout = async () => {
     try {
       await fetch("/api/auth", {
@@ -18,6 +54,7 @@ export function Navbar({ user, onOpenAuth, onLogout }: NavbarProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "logout" }),
       });
+      setCurrentUser(null);
       if (onLogout) {
         onLogout();
       }
@@ -27,6 +64,13 @@ export function Navbar({ user, onOpenAuth, onLogout }: NavbarProps) {
       window.location.href = "/";
     }
   };
+
+  const user = currentUser ?? propUser;
+
+  // Destinos condicionais: abas do dashboard para logados, ou planos para conversão de visitantes
+  const campaignsHref = user ? "/dashboard?tab=campaigns" : "/#planos";
+  const analyticsHref = user ? "/dashboard?tab=analytics" : "/#planos";
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-[#0B0F19]/90 backdrop-blur-md">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
@@ -44,11 +88,11 @@ export function Navbar({ user, onOpenAuth, onLogout }: NavbarProps) {
             </div>
           </Link>
 
-          {/* Badge de Status do Sistema */}
-          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-400">
-            <span className="relative flex h-2 w-2 items-center justify-center">
-              <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400/60" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+          {/* Badge de Status do Sistema com Animação de Pulso Intermitente */}
+          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-400 shadow-sm">
+            <span className="relative flex h-2.5 w-2.5 items-center justify-center">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
             </span>
             <span className="text-slate-300 font-medium">SaaS Operacional</span>
             <span className="text-slate-600">•</span>
@@ -66,15 +110,25 @@ export function Navbar({ user, onOpenAuth, onLogout }: NavbarProps) {
             <span>Encurtador</span>
           </Link>
           <Link
-            href="/dashboard"
-            className="flex items-center gap-1.5 hover:text-white transition-colors"
+            href={campaignsHref}
+            title={
+              user
+                ? "Ir para aba de Campanhas no Painel"
+                : "Contrate um plano para gerenciar campanhas e canais"
+            }
+            className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
           >
             <Layers className="w-4 h-4 text-emerald-400" />
             <span>Campanhas</span>
           </Link>
           <Link
-            href="/dashboard"
-            className="flex items-center gap-1.5 hover:text-white transition-colors"
+            href={analyticsHref}
+            title={
+              user
+                ? "Ir para aba de Analytics Detalhado no Painel"
+                : "Contrate um plano para desbloquear telemetria e Analytics em tempo real"
+            }
+            className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
           >
             <BarChart3 className="w-4 h-4 text-sky-400" />
             <span>Analytics</span>
@@ -94,7 +148,7 @@ export function Navbar({ user, onOpenAuth, onLogout }: NavbarProps) {
             <div className="flex items-center gap-2">
               <Link
                 href="/dashboard"
-                className="flex items-center gap-2 bg-slate-900 border border-slate-800 hover:border-slate-700 text-white text-xs font-medium px-3.5 py-2 rounded-lg transition-colors"
+                className="flex items-center gap-2 bg-slate-900 border border-slate-800 hover:border-slate-700 text-white text-xs font-medium px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-400 indicator shrink-0" />
                 <span>Painel</span>
