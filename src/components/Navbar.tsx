@@ -15,9 +15,10 @@ interface NavbarProps {
   user?: NavbarUser | null;
   onOpenAuth?: () => void;
   onLogout?: () => void;
+  onNavigateTab?: (tab: "overview" | "campaigns" | "analytics") => void;
 }
 
-export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
+export function Navbar({ user: propUser, onOpenAuth, onLogout, onNavigateTab }: NavbarProps) {
   // Estado local para garantir sincronia imediata caso a prop ainda não tenha resolvido
   const [currentUser, setCurrentUser] = useState<NavbarUser | null | undefined>(propUser);
 
@@ -25,26 +26,26 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
     setCurrentUser(propUser);
   }, [propUser]);
 
-  // Se propUser for explicitamente indefinido (ex: componente montado sem prop do pai), checa a sessão fresca
+  // Sempre verifica a sessão no /api/auth com no-store na montagem ou quando a prop não estiver definida
   useEffect(() => {
-    if (propUser === undefined) {
-      let isMounted = true;
-      fetch("/api/auth", { cache: "no-store" })
-        .then((res) => res.json())
-        .then((data) => {
-          if (isMounted && data.authenticated && data.user) {
+    let isMounted = true;
+    fetch("/api/auth", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (isMounted) {
+          if (data.authenticated && data.user) {
             setCurrentUser(data.user);
-          } else if (isMounted) {
+          } else if (propUser === undefined || propUser === null) {
             setCurrentUser(null);
           }
-        })
-        .catch(() => {
-          if (isMounted) setCurrentUser(null);
-        });
-      return () => {
-        isMounted = false;
-      };
-    }
+        }
+      })
+      .catch(() => {
+        if (isMounted && !propUser) setCurrentUser(null);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, [propUser]);
 
   const handleLogout = async () => {
@@ -67,15 +68,23 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
 
   const user = currentUser ?? propUser;
 
-  // Destinos condicionais: abas do dashboard para logados, ou planos para conversão de visitantes
-  const campaignsHref = user ? "/dashboard?tab=campaigns" : "/#planos";
-  const analyticsHref = user ? "/dashboard?tab=analytics" : "/#planos";
+  // Destinos condicionais: abas do dashboard para logados, ou URL de planos para conversão de visitantes
+  const plansTarget = "https://linkzivo-production.up.railway.app/#planos";
+  const campaignsHref = user ? "/dashboard?tab=campaigns" : plansTarget;
+  const analyticsHref = user ? "/dashboard?tab=analytics" : plansTarget;
+
+  const handleTabClick = (e: React.MouseEvent, tab: "overview" | "campaigns" | "analytics") => {
+    if (user && onNavigateTab) {
+      e.preventDefault();
+      onNavigateTab(tab);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-[#0B0F19]/90 backdrop-blur-md">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
         {/* Logotipo Oficial */}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 sm:gap-6">
           <Link href="/" className="flex items-center gap-2">
             <div className="relative h-8 w-36 sm:w-40">
               <Image
@@ -89,14 +98,14 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
           </Link>
 
           {/* Badge de Status do Sistema com Animação de Pulso Intermitente */}
-          <div className="hidden lg:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-400 shadow-sm">
+          <div className="hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-md bg-slate-900 border border-slate-800 text-xs text-slate-400 shadow-sm">
             <span className="relative flex h-2.5 w-2.5 items-center justify-center">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)] animate-pulse" />
             </span>
             <span className="text-slate-300 font-medium">SaaS Operacional</span>
-            <span className="text-slate-600">•</span>
-            <span className="text-emerald-400 font-mono text-[11px]">&lt; 18ms</span>
+            <span className="text-slate-600 hidden md:inline">•</span>
+            <span className="text-emerald-400 font-mono text-[11px] hidden md:inline">&lt; 18ms</span>
           </div>
         </div>
 
@@ -111,6 +120,7 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
           </Link>
           <Link
             href={campaignsHref}
+            onClick={(e) => handleTabClick(e, "campaigns")}
             title={
               user
                 ? "Ir para aba de Campanhas no Painel"
@@ -123,6 +133,7 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
           </Link>
           <Link
             href={analyticsHref}
+            onClick={(e) => handleTabClick(e, "analytics")}
             title={
               user
                 ? "Ir para aba de Analytics Detalhado no Painel"
@@ -148,9 +159,10 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout }: NavbarProps) {
             <div className="flex items-center gap-2">
               <Link
                 href="/dashboard"
+                onClick={(e) => handleTabClick(e, "overview")}
                 className="flex items-center gap-2 bg-slate-900 border border-slate-800 hover:border-slate-700 text-white text-xs font-medium px-3.5 py-2 rounded-lg transition-colors cursor-pointer"
               >
-                <span className="w-2 h-2 rounded-full bg-emerald-400 indicator shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-emerald-400 indicator shrink-0 animate-pulse" />
                 <span>Painel</span>
                 <span className="px-2 py-0.5 rounded bg-[#4267E9]/20 text-[#4267E9] font-mono text-[11px] font-semibold">
                   {user.workspacePlan}

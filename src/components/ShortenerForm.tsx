@@ -416,7 +416,11 @@ export function ShortenerForm({
                 </button>
 
                 <Link
-                  href={currentUser ? "/dashboard?tab=analytics" : "/#planos"}
+                  href={
+                    currentUser
+                      ? "/dashboard?tab=analytics"
+                      : "https://linkzivo-production.up.railway.app/#planos"
+                  }
                   title={
                     currentUser
                       ? "Ver telemetria e conversões no Painel"

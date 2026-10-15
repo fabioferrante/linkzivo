@@ -201,6 +201,8 @@ function DashboardContent() {
       tabParam === "overview"
     ) {
       setActiveTab(tabParam);
+    } else if (!tabParam) {
+      setActiveTab("overview");
     }
   }, [tabParam]);
 
@@ -813,7 +815,11 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#0B0F19] text-slate-100">
-      <Navbar user={user} onOpenAuth={() => setAuthModalOpen(true)} />
+      <Navbar
+        user={user}
+        onOpenAuth={() => setAuthModalOpen(true)}
+        onNavigateTab={(tab) => handleTabChange(tab)}
+      />
 
       <div className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
         {/* Banner do Workspace (sem botão de sair duplicado, seguindo requisito 2) */}
@@ -1119,25 +1125,53 @@ function DashboardContent() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <div className="h-56 flex items-end gap-1.5 sm:gap-2 pt-14 pb-2 px-1 overflow-x-auto relative">
+                  <div className="h-64 flex items-end gap-1.5 sm:gap-2 pt-20 pb-3 px-2 relative select-none">
                     {(() => {
                       const maxClicks = Math.max(
                         ...analytics.dailyTimeline.map((d) => d.clicks),
                         1
                       );
+                      const totalDays = analytics.dailyTimeline.length;
                       return analytics.dailyTimeline.map((d, idx) => {
-                        const heightPct = Math.max((d.clicks / maxClicks) * 100, 6);
+                        // Limite de 58% para garantir espaço aéreo de 42% no topo do gráfico
+                        const heightPct = Math.max(Math.round((d.clicks / maxClicks) * 58), 6);
                         const isQr = d.qrScans > 0;
+                        const isFirst = idx === 0;
+                        const isLast = idx === totalDays - 1;
+                        const alignClass = isFirst
+                          ? "left-0"
+                          : isLast
+                          ? "right-0"
+                          : "left-1/2 -translate-x-1/2";
+                        const arrowAlignClass = isFirst
+                          ? "left-3"
+                          : isLast
+                          ? "right-3"
+                          : "left-1/2 -translate-x-1/2";
+
                         return (
                           <div
                             key={idx}
                             onMouseEnter={() => setHoveredDay(d)}
                             onMouseLeave={() => setHoveredDay(null)}
-                            className="flex-1 flex flex-col items-center justify-end h-full min-w-[20px] group relative group-hover:z-30 cursor-pointer"
+                            className="flex-1 flex flex-col items-center justify-end h-full min-w-[20px] group relative group-hover:z-40 cursor-pointer"
                           >
-                            {/* Tooltip ao passar o mouse: posicionado com folga garantida no topo interno do container para evitar corte */}
-                            <div className="absolute top-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950/95 border border-slate-700 text-[11px] text-white font-mono px-2.5 py-1 rounded-md shadow-2xl pointer-events-none whitespace-nowrap z-30">
-                              {d.label}: {d.clicks} clique(s) {isQr ? `(${d.qrScans} QR)` : ""}
+                            {/* Balão Tooltip sobreposto com folga livre e setinha indicativa */}
+                            <div
+                              style={{ bottom: `calc(${heightPct}% + 14px)` }}
+                              className={`absolute ${alignClass} opacity-0 group-hover:opacity-100 transition-all duration-150 bg-slate-950 border border-slate-700/90 text-[11px] text-white font-mono px-3 py-1.5 rounded-lg shadow-2xl pointer-events-none whitespace-nowrap z-50`}
+                            >
+                              <div className="font-semibold text-white">
+                                {d.label}: <span className="text-emerald-400">{d.clicks} clique(s)</span>
+                              </div>
+                              {isQr && (
+                                <div className="text-[10px] text-sky-400">
+                                  {d.qrScans} scan(s) QR
+                                </div>
+                              )}
+                              <span
+                                className={`absolute -bottom-1.5 w-2 h-2 bg-slate-950 border-r border-b border-slate-700/90 rotate-45 ${arrowAlignClass}`}
+                              />
                             </div>
 
                             {/* Barra Diária */}
