@@ -123,8 +123,6 @@ export function OverviewView({
   const totalClicks = analytics?.totalClicks ?? 0;
   const totalQrScans = analytics?.totalQrScans ?? 0;
   const conversions = analytics?.conversionsCount ?? 0;
-  const ctrRatio = totalClicks > 0 ? ((conversions / totalClicks) * 100).toFixed(1) : "0.0";
-  const qrVolumePct = totalClicks > 0 ? Math.round((totalQrScans / totalClicks) * 100) : 0;
 
   // Timeline para render do SVG do gráfico
   const timeline = analytics?.dailyTimeline || [];
@@ -155,10 +153,10 @@ export function OverviewView({
   const desktopDevice = devices.find((d) => d.name === "Desktop") || { pct: 0, count: 0 };
   const tabletDevice = devices.find((d) => d.name === "Tablet") || { pct: 0, count: 0 };
 
-  // Taxa de recorrência estimada a partir do tráfego real
-  const recurrenceRate = hasTraffic
-    ? Math.max(0, Math.min(100, Math.round(((totalClicks - Math.min(totalClicks, timeline.length)) / totalClicks) * 100)))
-    : 0;
+  // Taxa de Conversão de Vendas (CVR = Conversões / Cliques)
+  const conversionRate = hasTraffic ? ((conversions / totalClicks) * 100).toFixed(1) + "%" : "—";
+  // Participação de QR Code no volume de cliques
+  const qrVolumePct = hasTraffic ? Math.round((totalQrScans / totalClicks) * 100) : 0;
 
   // Links com maior desempenho
   const topLinks = links
@@ -414,11 +412,11 @@ export function OverviewView({
           </div>
         </div>
 
-        {/* Card 4: CTR / Conversão Média */}
+        {/* Card 4: Taxa de Conversão (CVR) */}
         <div className="stitch-card p-5 space-y-2">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <span className="font-semibold uppercase tracking-wider text-[10px] font-mono">
-              CTR • Conversão Média
+              Taxa de Conversão (CVR)
             </span>
             <div className="w-6 h-6 rounded-md bg-purple-500/10 flex items-center justify-center text-purple-400">
               <TrendingUp className="w-3.5 h-3.5" />
@@ -426,12 +424,14 @@ export function OverviewView({
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
-              {ctrRatio}%
+              {conversionRate}
             </span>
             {conversions > 0 ? (
               <span className="badge-stitch-mint text-[11px]">{conversions} vendas</span>
+            ) : hasTraffic ? (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0 vendas</span>
             ) : (
-              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0.0%</span>
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">—</span>
             )}
           </div>
           <div className="h-6 w-full flex items-end">
@@ -465,30 +465,11 @@ export function OverviewView({
                 </p>
               </div>
 
-              {/* Toggle Cliques Totais / Únicos */}
+              {/* Indicador de Visualização */}
               <div className="p-1 rounded-xl bg-[#090C14] border border-white/[0.08] inline-flex items-center text-xs font-medium self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setChartViewMode("totals")}
-                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                    chartViewMode === "totals"
-                      ? "bg-purple-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Cliques Totais
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChartViewMode("uniques")}
-                  className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                    chartViewMode === "uniques"
-                      ? "bg-purple-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Cliques Únicos
-                </button>
+                <span className="px-3 py-1 rounded-lg bg-purple-600 text-white shadow-sm font-mono text-[11px]">
+                  Cliques &amp; QR Scans
+                </span>
               </div>
             </div>
 
@@ -532,7 +513,7 @@ export function OverviewView({
                     points={pointsTotals}
                   />
 
-                  {/* Curva QR Scans / Únicos (Verde Mint) */}
+                  {/* Curva QR Scans (Verde Mint) */}
                   <polyline
                     fill="none"
                     stroke="#10B981"
@@ -555,12 +536,12 @@ export function OverviewView({
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                <span className="text-slate-300">Cliques Únicos (IP / User-Agent)</span>
+                <span className="text-slate-300">Scans de QR Code</span>
               </span>
             </div>
 
             <span className="font-mono text-slate-400">
-              Taxa de Recorrência: {recurrenceRate.toFixed(1)}%
+              Participação QR: {hasTraffic ? `${qrVolumePct}%` : "—"}
             </span>
           </div>
         </div>

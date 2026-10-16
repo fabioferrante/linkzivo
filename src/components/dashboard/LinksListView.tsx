@@ -133,7 +133,7 @@ export function LinksListView({
   const totalClicksAll = useMemo(() => links.reduce((acc, curr) => acc + curr.clickCount, 0), [links]);
   const totalQrScansAll = useMemo(() => links.reduce((acc, curr) => acc + curr.qrScanCount, 0), [links]);
   const activeLinksCount = useMemo(() => links.filter((l) => l.status === "ACTIVE").length, [links]);
-  const globalConversionRate = totalClicksAll > 0 ? ((totalQrScansAll / totalClicksAll) * 100).toFixed(1) : "0.0";
+  const qrShareRate = totalClicksAll > 0 ? ((totalQrScansAll / totalClicksAll) * 100).toFixed(1) : "0.0";
 
   return (
     <div className="space-y-6">
@@ -219,7 +219,7 @@ export function LinksListView({
             {totalClicksAll > 0 ? (
               <span className="badge-stitch-mint text-[11px]">{totalClicksAll} cliques</span>
             ) : (
-              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0 cliques</span>
             )}
           </div>
         </div>
@@ -238,7 +238,7 @@ export function LinksListView({
             {totalClicksAll > 0 ? (
               <span className="badge-stitch-mint text-[11px]">{Math.round((totalQrScansAll / totalClicksAll) * 100)}% volume</span>
             ) : (
-              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0 scans</span>
             )}
           </div>
         </div>
@@ -246,18 +246,18 @@ export function LinksListView({
         <div className="stitch-card p-5 space-y-1">
           <div className="flex items-center justify-between text-slate-400 text-xs">
             <span className="font-semibold uppercase tracking-wider text-[10px] font-mono">
-              Taxa de Conversão Global
+              Participação de QR Code
             </span>
-            <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+            <TrendingUp className="w-3.5 h-3.5 text-purple-400" />
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
-              {globalConversionRate}%
+              {totalClicksAll > 0 ? `${qrShareRate}%` : "—"}
             </span>
             {totalClicksAll > 0 ? (
-              <span className="badge-stitch-mint text-[11px]">{globalConversionRate}% ratio</span>
+              <span className="badge-stitch-mint text-[11px]">{qrShareRate}% volume</span>
             ) : (
-              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0.0%</span>
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">—</span>
             )}
           </div>
         </div>
