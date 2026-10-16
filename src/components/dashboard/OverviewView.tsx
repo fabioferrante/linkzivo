@@ -148,11 +148,17 @@ export function OverviewView({
     return `${x},${y}`;
   }).join(" ");
 
-  // Dispositivos
+  // Dispositivos (100% dinâmicos e fiéis aos cliques reais)
+  const hasTraffic = totalClicks > 0;
   const devices = analytics?.deviceBreakdown || [];
-  const mobileDevice = devices.find((d) => d.name === "Mobile") || { pct: 58, count: 0 };
-  const desktopDevice = devices.find((d) => d.name === "Desktop") || { pct: 34, count: 0 };
-  const tabletDevice = devices.find((d) => d.name === "Tablet") || { pct: 8, count: 0 };
+  const mobileDevice = devices.find((d) => d.name === "Mobile") || { pct: 0, count: 0 };
+  const desktopDevice = devices.find((d) => d.name === "Desktop") || { pct: 0, count: 0 };
+  const tabletDevice = devices.find((d) => d.name === "Tablet") || { pct: 0, count: 0 };
+
+  // Taxa de recorrência estimada a partir do tráfego real
+  const recurrenceRate = hasTraffic
+    ? Math.max(0, Math.min(100, Math.round(((totalClicks - Math.min(totalClicks, timeline.length)) / totalClicks) * 100)))
+    : 0;
 
   // Links com maior desempenho
   const topLinks = links
@@ -316,13 +322,17 @@ export function OverviewView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {activeLinksCount.toLocaleString("pt-BR")}
             </span>
-            <span className="badge-stitch-mint text-[11px]">+12.4%</span>
+            {activeLinksCount > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{activeLinksCount} ativos</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0 links</span>
+            )}
           </div>
           {/* Mini Sparkline decorativa */}
           <div className="h-6 w-full flex items-end">
-            <svg className="w-full h-full text-emerald-400" viewBox="0 0 100 20" preserveAspectRatio="none">
+            <svg className={`w-full h-full ${activeLinksCount > 0 ? "text-emerald-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
               <path
-                d="M0,15 Q25,18 50,8 T100,2"
+                d={activeLinksCount > 0 ? "M0,15 Q25,18 50,8 T100,2" : "M0,18 L100,18"}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
@@ -348,12 +358,16 @@ export function OverviewView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {totalClicks.toLocaleString("pt-BR")}
             </span>
-            <span className="badge-stitch-mint text-[11px]">+28.6%</span>
+            {totalClicks > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{totalClicks} cliques</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
+            )}
           </div>
           <div className="h-6 w-full flex items-end">
-            <svg className="w-full h-full text-purple-400" viewBox="0 0 100 20" preserveAspectRatio="none">
+            <svg className={`w-full h-full ${totalClicks > 0 ? "text-purple-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
               <path
-                d="M0,18 Q20,12 50,14 T100,3"
+                d={totalClicks > 0 ? "M0,18 Q20,12 50,14 T100,3" : "M0,18 L100,18"}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
@@ -379,12 +393,16 @@ export function OverviewView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {totalQrScans.toLocaleString("pt-BR")}
             </span>
-            <span className="badge-stitch-mint text-[11px]">+18.2%</span>
+            {totalQrScans > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{qrVolumePct}% volume</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
+            )}
           </div>
           <div className="h-6 w-full flex items-end">
-            <svg className="w-full h-full text-emerald-400" viewBox="0 0 100 20" preserveAspectRatio="none">
+            <svg className={`w-full h-full ${totalQrScans > 0 ? "text-emerald-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
               <path
-                d="M0,16 Q30,6 60,12 T100,4"
+                d={totalQrScans > 0 ? "M0,16 Q30,6 60,12 T100,4" : "M0,18 L100,18"}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
@@ -410,12 +428,16 @@ export function OverviewView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {ctrRatio}%
             </span>
-            <span className="badge-stitch-mint text-[11px]">+2.1%</span>
+            {conversions > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{conversions} vendas</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0.0%</span>
+            )}
           </div>
           <div className="h-6 w-full flex items-end">
-            <svg className="w-full h-full text-purple-400" viewBox="0 0 100 20" preserveAspectRatio="none">
+            <svg className={`w-full h-full ${conversions > 0 ? "text-purple-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
               <path
-                d="M0,14 Q30,16 60,8 T100,2"
+                d={conversions > 0 ? "M0,14 Q30,16 60,8 T100,2" : "M0,18 L100,18"}
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
@@ -538,7 +560,7 @@ export function OverviewView({
             </div>
 
             <span className="font-mono text-slate-400">
-              Taxa de Recorrência: 34.2%
+              Taxa de Recorrência: {recurrenceRate.toFixed(1)}%
             </span>
           </div>
         </div>
@@ -559,34 +581,44 @@ export function OverviewView({
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                   {/* Trilha de fundo */}
                   <circle cx="50" cy="50" r="40" stroke="rgba(255,255,255,0.06)" strokeWidth="12" fill="none" />
-                  {/* Segmento Mobile (58%) */}
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    stroke="#8B5CF6"
-                    strokeWidth="12"
-                    strokeDasharray="145 251"
-                    strokeDashoffset="0"
-                    fill="none"
-                    strokeLinecap="round"
-                  />
-                  {/* Segmento Desktop (34%) */}
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    stroke="#10B981"
-                    strokeWidth="12"
-                    strokeDasharray="85 251"
-                    strokeDashoffset="-150"
-                    fill="none"
-                    strokeLinecap="round"
-                  />
+                  {hasTraffic && mobileDevice.pct > 0 && (
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      stroke="#8B5CF6"
+                      strokeWidth="12"
+                      strokeDasharray={`${(mobileDevice.pct / 100) * 251.3} 251.3`}
+                      strokeDashoffset="0"
+                      fill="none"
+                      strokeLinecap="round"
+                    />
+                  )}
+                  {hasTraffic && desktopDevice.pct > 0 && (
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      stroke="#10B981"
+                      strokeWidth="12"
+                      strokeDasharray={`${(desktopDevice.pct / 100) * 251.3} 251.3`}
+                      strokeDashoffset={`-${(mobileDevice.pct / 100) * 251.3}`}
+                      fill="none"
+                      strokeLinecap="round"
+                    />
+                  )}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-xl font-extrabold text-white font-mono">58%</span>
-                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Mobile First</span>
+                  <span className="text-xl font-extrabold text-white font-mono">
+                    {hasTraffic ? `${mobileDevice.pct >= desktopDevice.pct ? mobileDevice.pct : desktopDevice.pct}%` : "0%"}
+                  </span>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">
+                    {hasTraffic
+                      ? mobileDevice.pct >= desktopDevice.pct
+                        ? "Mobile First"
+                        : "Desktop First"
+                      : "Sem Tráfego"}
+                  </span>
                 </div>
               </div>
             </div>
@@ -600,7 +632,7 @@ export function OverviewView({
                   <span className="text-slate-300">Mobile</span>
                 </div>
                 <div className="font-mono text-slate-300">
-                  {mobileDevice.count} <span className="text-purple-400 font-semibold">(58%)</span>
+                  {mobileDevice.count} <span className="text-purple-400 font-semibold">({mobileDevice.pct}%)</span>
                 </div>
               </div>
 
@@ -611,7 +643,7 @@ export function OverviewView({
                   <span className="text-slate-300">Desktop</span>
                 </div>
                 <div className="font-mono text-slate-300">
-                  {desktopDevice.count} <span className="text-emerald-400 font-semibold">(34%)</span>
+                  {desktopDevice.count} <span className="text-emerald-400 font-semibold">({desktopDevice.pct}%)</span>
                 </div>
               </div>
 
@@ -622,14 +654,18 @@ export function OverviewView({
                   <span className="text-slate-300">Tablet</span>
                 </div>
                 <div className="font-mono text-slate-300">
-                  {tabletDevice.count} <span className="text-slate-400 font-semibold">(8%)</span>
+                  {tabletDevice.count} <span className="text-slate-400 font-semibold">({tabletDevice.pct}%)</span>
                 </div>
               </div>
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-white/[0.06] text-[11px] text-slate-400 flex items-center justify-between">
-            <span>Canais: Instagram 44%, WhatsApp 27%, Ads 29%</span>
+            <span>
+              {hasTraffic
+                ? "Atribuição multicanal por parâmetros UTM e referer ativa"
+                : "Canais: Nenhum tráfego registrado no período"}
+            </span>
           </div>
         </div>
       </div>

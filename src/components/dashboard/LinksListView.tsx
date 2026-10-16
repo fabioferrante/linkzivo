@@ -132,6 +132,8 @@ export function LinksListView({
 
   const totalClicksAll = useMemo(() => links.reduce((acc, curr) => acc + curr.clickCount, 0), [links]);
   const totalQrScansAll = useMemo(() => links.reduce((acc, curr) => acc + curr.qrScanCount, 0), [links]);
+  const activeLinksCount = useMemo(() => links.filter((l) => l.status === "ACTIVE").length, [links]);
+  const globalConversionRate = totalClicksAll > 0 ? ((totalQrScansAll / totalClicksAll) * 100).toFixed(1) : "0.0";
 
   return (
     <div className="space-y-6">
@@ -195,7 +197,11 @@ export function LinksListView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {links.length.toLocaleString("pt-BR")}
             </span>
-            <span className="badge-stitch-mint text-[11px]">+18 hoje</span>
+            {links.length > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{activeLinksCount} ativos</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0 links</span>
+            )}
           </div>
         </div>
 
@@ -210,7 +216,11 @@ export function LinksListView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {totalClicksAll.toLocaleString("pt-BR")}
             </span>
-            <span className="badge-stitch-mint text-[11px]">+14.2%</span>
+            {totalClicksAll > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{totalClicksAll} cliques</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
+            )}
           </div>
         </div>
 
@@ -225,7 +235,11 @@ export function LinksListView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {totalQrScansAll.toLocaleString("pt-BR")}
             </span>
-            <span className="badge-stitch-mint text-[11px]">+8.5%</span>
+            {totalClicksAll > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{Math.round((totalQrScansAll / totalClicksAll) * 100)}% volume</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
+            )}
           </div>
         </div>
 
@@ -238,9 +252,13 @@ export function LinksListView({
           </div>
           <div className="flex items-baseline justify-between">
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
-              4.72%
+              {globalConversionRate}%
             </span>
-            <span className="badge-stitch-mint text-[11px]">+0.6 pp</span>
+            {totalClicksAll > 0 ? (
+              <span className="badge-stitch-mint text-[11px]">{globalConversionRate}% ratio</span>
+            ) : (
+              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0.0%</span>
+            )}
           </div>
         </div>
       </div>
@@ -456,8 +474,8 @@ export function LinksListView({
                         <div className="font-mono font-bold text-white text-sm">
                           {link.clickCount.toLocaleString("pt-BR")}
                         </div>
-                        <div className="text-[10px] text-emerald-400 font-mono font-medium">
-                          ↗ +15.4%
+                        <div className="text-[10px] text-slate-500 font-mono">
+                          {link.qrScanCount > 0 ? `${link.qrScanCount} via QR` : "cliques totais"}
                         </div>
                       </td>
 
