@@ -6,6 +6,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/Navbar";
 import { AuthModal } from "@/components/AuthModal";
+import { DashboardSidebar } from "@/components/DashboardSidebar";
+import { DashboardHeader } from "@/components/DashboardHeader";
+import { OverviewView } from "@/components/dashboard/OverviewView";
+import { LinksView } from "@/components/dashboard/LinksView";
+import { CreateLinkView } from "@/components/dashboard/CreateLinkView";
 import {
   Link2,
   QrCode,
@@ -178,27 +183,29 @@ function DashboardContent() {
   } | null>(null);
 
   const [activeTab, setActiveTab] = useState<
-    "overview" | "links" | "campaigns" | "products" | "analytics"
+    "overview" | "links" | "create" | "campaigns" | "products" | "analytics"
   >(() => {
     if (
       tabParam === "campaigns" ||
       tabParam === "analytics" ||
       tabParam === "links" ||
-      tabParam === "products"
+      tabParam === "products" ||
+      tabParam === "create"
     ) {
       return tabParam;
     }
     return "overview";
   });
 
-  // Sincroniza activeTab quando o parâmetro da URL mudar (ex: ao clicar nos botões da Navbar)
+  // Sincroniza activeTab quando o parâmetro da URL mudar
   useEffect(() => {
     if (
       tabParam === "campaigns" ||
       tabParam === "analytics" ||
       tabParam === "links" ||
       tabParam === "products" ||
-      tabParam === "overview"
+      tabParam === "overview" ||
+      tabParam === "create"
     ) {
       setActiveTab(tabParam);
     } else if (!tabParam) {
@@ -207,7 +214,7 @@ function DashboardContent() {
   }, [tabParam]);
 
   const handleTabChange = (
-    newTab: "overview" | "links" | "campaigns" | "products" | "analytics"
+    newTab: "overview" | "links" | "create" | "campaigns" | "products" | "analytics"
   ) => {
     setActiveTab(newTab);
     if (typeof window !== "undefined") {
@@ -219,6 +226,67 @@ function DashboardContent() {
       }
       window.history.replaceState(null, "", url.toString());
     }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "logout" }),
+      });
+      setUser(null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      window.location.href = "/";
+    }
+  };
+
+  const handleUnifiedCreateLink = async (payload: {
+    destinationUrl: string;
+    slug?: string;
+    title?: string;
+    productId?: string;
+    offerId?: string;
+    campaignId?: string;
+  }) => {
+    setCreateLoading(true);
+    try {
+      const res = await fetch("/api/links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: payload.destinationUrl,
+          customSlug: payload.slug,
+          title: payload.title,
+          productId: payload.productId,
+          offerId: payload.offerId,
+          campaignId: payload.campaignId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Erro ao criar link.");
+        return false;
+      }
+      await fetchAllData(period);
+      handleTabChange("links");
+      return true;
+    } catch (e) {
+      console.error(e);
+      alert("Erro de conexão ao criar link.");
+      return false;
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleQuickShorten = async (url: string, customSlug?: string) => {
+    return await handleUnifiedCreateLink({
+      destinationUrl: url,
+      slug: customSlug,
+    });
   };
 
   const [period, setPeriod] = useState<"7d" | "30d" | "90d" | "all">("30d");
@@ -814,873 +882,100 @@ function DashboardContent() {
   const editingProductObj = products.find((p) => p.id === editProductId);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0B0F19] text-slate-100">
-      <Navbar
+    <div className="min-h-screen flex bg-[#0B0E14] text-slate-100 antialiased font-sans">
+      {/* Sidebar Lateral Esquerda Fixa */}
+      <DashboardSidebar
+        activeTab={activeTab}
+        onTabChange={(tab) => handleTabChange(tab)}
+        linksCount={links.length}
+        campaignsCount={campaigns.length}
+        productsCount={products.length}
         user={user}
-        onOpenAuth={() => setAuthModalOpen(true)}
-        onNavigateTab={(tab) => handleTabChange(tab)}
+        onLogout={handleLogout}
       />
 
-      <div className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8">
-        {/* Banner do Workspace (sem botão de sair duplicado, seguindo requisito 2) */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-500/10 text-[#4267E9]">
-              <Layers className="h-6 w-6" />
-            </div>
-            <div>
+      {/* Área Central com Top Header */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen">
+        <DashboardHeader
+          currentTab={activeTab}
+          onOpenCreate={() => handleTabChange("create")}
+          user={user}
+        />
+
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+          {/* Alerta de Erro com Ação de Tentar Novamente */}
+          {error && (
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 mb-6 flex items-center justify-between gap-3 text-xs text-rose-300">
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-white">
-                  Painel de Operações &amp; Campanhas
-                </h1>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#4267E9]/20 text-[#4267E9] font-mono font-medium">
-                  {user ? user.workspacePlan : "DEMO"}
-                </span>
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{error}</span>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Acompanhe o tráfego em tempo real, gerencie campanhas e atribua ofertas de afiliados.
-              </p>
+              <button
+                onClick={() => fetchAllData(period)}
+                className="flex items-center gap-1 px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 rounded font-medium transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Tentar novamente</span>
+              </button>
             </div>
-          </div>
+          )}
 
-          <div className="flex items-center gap-2.5 shrink-0 w-full sm:w-auto">
-            <button
-              onClick={() => setCreateModalOpen(true)}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-[#4267E9] hover:bg-[#3556D4] text-white font-medium text-xs rounded-lg transition-colors cursor-pointer shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Criar Smart Link</span>
-            </button>
-          </div>
-        </div>
 
-        {/* Alerta de Erro com Ação de Tentar Novamente */}
-        {error && (
-          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 mb-6 flex items-center justify-between gap-3 text-xs text-rose-300">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>{error}</span>
-            </div>
-            <button
-              onClick={() => fetchAllData(period)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 rounded font-medium transition-colors cursor-pointer"
-            >
-              <RefreshCw className="w-3 h-3" />
-              <span>Tentar novamente</span>
-            </button>
-          </div>
-        )}
-
-        {/* Filtro de Período Global (Requisito 4) */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <Filter className="w-3.5 h-3.5 text-[#4267E9]" />
-            <span className="font-medium text-slate-300">Janela Temporal:</span>
-            {analyticsLoading && (
-              <span className="text-[11px] text-[#4267E9] flex items-center gap-1 font-mono animate-pulse">
-                <RefreshCw className="w-3 h-3 animate-spin" /> Atualizando...
-              </span>
-            )}
-          </div>
-
-          <div className="inline-flex p-1 rounded-lg bg-slate-900 border border-slate-800 text-xs font-medium">
-            <button
-              onClick={() => handlePeriodChange("7d")}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                period === "7d"
-                  ? "bg-[#4267E9] text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              7 dias
-            </button>
-            <button
-              onClick={() => handlePeriodChange("30d")}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                period === "30d"
-                  ? "bg-[#4267E9] text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              30 dias
-            </button>
-            <button
-              onClick={() => handlePeriodChange("90d")}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                period === "90d"
-                  ? "bg-[#4267E9] text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              90 dias
-            </button>
-            <button
-              onClick={() => handlePeriodChange("all")}
-              className={`px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                period === "all"
-                  ? "bg-[#4267E9] text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              Histórico Completo
-            </button>
-          </div>
-        </div>
-
-        {/* Métricas Principais (Cards em rounded-xl, escala 4px, com Skeleton discreto) */}
-        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          {/* Card 1: Total de Cliques */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-              <span>Total de Cliques</span>
-              <Activity className="w-4 h-4 text-[#4267E9]" />
-            </div>
-            {loading ? (
-              <div className="h-8 w-24 bg-slate-800/60 rounded animate-pulse my-1" />
-            ) : (
-              <div className="text-2xl font-bold text-white font-mono">
-                {analytics?.totalClicks ?? 0}
-              </div>
-            )}
-            <span className="text-[11px] text-emerald-400 font-medium block mt-1">
-              {period === "all" ? "Todo o histórico" : `Últimos ${period}`}
-            </span>
-          </div>
-
-          {/* Card 2: Scans de QR Code */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-              <span>Scans de QR Code</span>
-              <QrCode className="w-4 h-4 text-sky-400" />
-            </div>
-            {loading ? (
-              <div className="h-8 w-20 bg-slate-800/60 rounded animate-pulse my-1" />
-            ) : (
-              <div className="text-2xl font-bold text-white font-mono">
-                {analytics?.totalQrScans ?? 0}
-              </div>
-            )}
-            <span className="text-[11px] text-sky-400 font-medium block mt-1">
-              Tráfego físico verificado
-            </span>
-          </div>
-
-          {/* Card 3: Smart Links Criados */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-              <span>Smart Links</span>
-              <Link2 className="w-4 h-4 text-amber-400" />
-            </div>
-            {loading ? (
-              <div className="h-8 w-16 bg-slate-800/60 rounded animate-pulse my-1" />
-            ) : (
-              <div className="text-2xl font-bold text-white font-mono">
-                {analytics?.totalLinks ?? links.length}
-              </div>
-            )}
-            <span className="text-[11px] text-slate-400 block mt-1">
-              Destinos mutáveis ativos
-            </span>
-          </div>
-
-          {/* Card 4: Comissão (Distinção clara entre Confirmada e Estimada - Requisito 2 e 6) */}
-          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-            <div className="flex items-center justify-between text-slate-400 mb-2 text-xs">
-              <span>Comissão Confirmada</span>
-              <DollarSign className="w-4 h-4 text-emerald-400" />
-            </div>
-            {loading ? (
-              <div className="h-8 w-28 bg-slate-800/60 rounded animate-pulse my-1" />
-            ) : (
-              <div className="text-2xl font-bold text-emerald-400 font-mono">
-                R$ {(analytics?.confirmedCommission ?? 0).toFixed(2).replace(".", ",")}
-              </div>
-            )}
-            <div className="text-[11px] text-slate-400 flex items-center justify-between mt-1">
-              <span>Estimada:</span>
-              <span className="text-amber-400/90 font-mono">
-                R$ {(analytics?.estimatedCommission ?? 0).toFixed(2).replace(".", ",")}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Barra de Navegação por Abas (Mantendo as 4 abas originais + Visão Geral Consolidada) */}
-        <div className="border-b border-slate-800 flex items-center gap-6 mb-6 overflow-x-auto scrollbar-none">
-          <button
-            onClick={() => handleTabChange("overview")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "overview"
-                ? "border-[#4267E9] text-white"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Activity className="w-4 h-4" />
-            <span>Visão Geral</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange("links")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "links"
-                ? "border-[#4267E9] text-white"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Link2 className="w-4 h-4" />
-            <span>Smart Links ({links.length})</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange("campaigns")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "campaigns"
-                ? "border-[#4267E9] text-white"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>Campanhas ({campaigns.length})</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange("products")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "products"
-                ? "border-[#4267E9] text-white"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>Produtos ({products.length})</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange("analytics")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "analytics"
-                ? "border-[#4267E9] text-white"
-                : "border-transparent text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span>Analytics Detalhado</span>
-          </button>
-        </div>
 
         {/* =========================================================================
-            ABA 1: VISÃO GERAL CONSOLIDADA (Requisito 2)
+            ABA 1: VISÃO GERAL (Design Aprovado: screen (2).png)
             ========================================================================= */}
         {activeTab === "overview" && (
-          <div className="space-y-8">
-            {/* Seção 1: Evolução dos Cliques ao Longo do Tempo (Gráfico Diário Confiável) */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-6">
-                <div>
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-[#4267E9]" />
-                    Evolução Diária de Cliques &amp; Scans
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Frequência de tráfego dia a dia nos últimos {period === "all" ? "30 dias" : period}.
-                  </p>
-                </div>
-                <div className="flex items-center gap-4 text-xs font-mono">
-                  {hoveredDay ? (
-                    <div className="flex items-center gap-2 px-3 py-1 rounded bg-[#4267E9]/15 border border-[#4267E9]/40 text-xs font-mono text-white animate-fade-in shadow-sm">
-                      <span className="text-[#4267E9] font-semibold">{hoveredDay.label}:</span>
-                      <span className="text-white font-bold">{hoveredDay.clicks} cliques</span>
-                      {hoveredDay.qrScans > 0 && (
-                        <span className="text-sky-400 font-semibold">({hoveredDay.qrScans} QR)</span>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <span className="flex items-center gap-1.5 text-slate-300">
-                        <span className="w-3 h-3 rounded bg-[#4267E9]" />
-                        Cliques Diretos
-                      </span>
-                      <span className="flex items-center gap-1.5 text-sky-400">
-                        <span className="w-3 h-3 rounded bg-sky-400" />
-                        QR Scans
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {loading || analyticsLoading ? (
-                <div className="h-44 w-full bg-slate-800/30 rounded-lg animate-pulse flex items-center justify-center text-xs text-slate-500">
-                  Carregando telemetria...
-                </div>
-              ) : !analytics?.dailyTimeline || analytics.dailyTimeline.every((d) => d.clicks === 0) ? (
-                <div className="py-12 text-center rounded-lg border border-dashed border-slate-800 bg-slate-950/40">
-                  <Activity className="w-8 h-8 text-slate-600 mx-auto mb-2 opacity-50" />
-                  <p className="text-xs font-medium text-slate-300">
-                    Nenhum tráfego registrado no período selecionado
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-1 max-w-sm mx-auto">
-                    Compartilhe seus Smart Links ou escaneie um QR Code para começar a visualizar a evolução temporal de cliques.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="h-64 flex items-end gap-1.5 sm:gap-2 pt-20 pb-3 px-2 relative select-none">
-                    {(() => {
-                      const maxClicks = Math.max(
-                        ...analytics.dailyTimeline.map((d) => d.clicks),
-                        1
-                      );
-                      const totalDays = analytics.dailyTimeline.length;
-                      return analytics.dailyTimeline.map((d, idx) => {
-                        // Limite de 58% para garantir espaço aéreo de 42% no topo do gráfico
-                        const heightPct = Math.max(Math.round((d.clicks / maxClicks) * 58), 6);
-                        const isQr = d.qrScans > 0;
-                        const isFirst = idx === 0;
-                        const isLast = idx === totalDays - 1;
-                        const alignClass = isFirst
-                          ? "left-0"
-                          : isLast
-                          ? "right-0"
-                          : "left-1/2 -translate-x-1/2";
-                        const arrowAlignClass = isFirst
-                          ? "left-3"
-                          : isLast
-                          ? "right-3"
-                          : "left-1/2 -translate-x-1/2";
-
-                        return (
-                          <div
-                            key={idx}
-                            onMouseEnter={() => setHoveredDay(d)}
-                            onMouseLeave={() => setHoveredDay(null)}
-                            className="flex-1 flex flex-col items-center justify-end h-full min-w-[20px] group relative group-hover:z-40 cursor-pointer"
-                          >
-                            {/* Balão Tooltip sobreposto com folga livre e setinha indicativa */}
-                            <div
-                              style={{ bottom: `calc(${heightPct}% + 14px)` }}
-                              className={`absolute ${alignClass} opacity-0 group-hover:opacity-100 transition-all duration-150 bg-slate-950 border border-slate-700/90 text-[11px] text-white font-mono px-3 py-1.5 rounded-lg shadow-2xl pointer-events-none whitespace-nowrap z-50`}
-                            >
-                              <div className="font-semibold text-white">
-                                {d.label}: <span className="text-emerald-400">{d.clicks} clique(s)</span>
-                              </div>
-                              {isQr && (
-                                <div className="text-[10px] text-sky-400">
-                                  {d.qrScans} scan(s) QR
-                                </div>
-                              )}
-                              <span
-                                className={`absolute -bottom-1.5 w-2 h-2 bg-slate-950 border-r border-b border-slate-700/90 rotate-45 ${arrowAlignClass}`}
-                              />
-                            </div>
-
-                            {/* Barra Diária */}
-                            <div
-                              style={{ height: `${heightPct}%` }}
-                              className={`w-full rounded-t transition-all ${
-                                isQr
-                                  ? "bg-gradient-to-t from-[#4267E9] to-sky-400 group-hover:brightness-125"
-                                  : "bg-[#4267E9] hover:bg-[#5b7ef8]"
-                              }`}
-                            />
-                            <span className="text-[9px] font-mono text-slate-500 mt-2 truncate">
-                              {d.label}
-                            </span>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Seção 2: Grid Duplo (Desempenho por Dispositivo & Desempenho de Campanhas) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Desempenho por Dispositivo */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-white mb-4 flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Smartphone className="w-4 h-4 text-[#4267E9]" />
-                    Distribuição por Dispositivo
-                  </span>
-                  <span className="text-xs text-slate-500 font-mono font-normal">
-                    {analytics?.totalClicks ?? 0} total
-                  </span>
-                </h3>
-
-                {analytics?.deviceBreakdown?.length ? (
-                  <div className="space-y-4">
-                    {analytics.deviceBreakdown.map((item, i) => (
-                      <div key={i}>
-                        <div className="flex justify-between text-xs font-mono text-slate-300 mb-1">
-                          <span className="flex items-center gap-1.5">
-                            {item.name === "Desktop" ? (
-                              <Monitor className="w-3.5 h-3.5 text-slate-400" />
-                            ) : (
-                              <Smartphone className="w-3.5 h-3.5 text-sky-400" />
-                            )}
-                            {item.name}
-                          </span>
-                          <span>
-                            {item.count} ({item.pct}%)
-                          </span>
-                        </div>
-                        <div className="w-full h-2 bg-slate-950 rounded-lg overflow-hidden">
-                          <div
-                            className={`h-full rounded-lg ${
-                              item.name === "Mobile" ? "bg-sky-400" : "bg-[#4267E9]"
-                            }`}
-                            style={{ width: `${item.pct}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-slate-500 text-center py-8">
-                    Aguardando primeiros acessos no período.
-                  </div>
-                )}
-              </div>
-
-              {/* Desempenho de Campanhas Ativas */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-emerald-400" />
-                    Desempenho de Campanhas
-                  </h3>
-                  <button
-                    onClick={() => handleTabChange("campaigns")}
-                    className="text-xs text-[#4267E9] hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    Ver todas <ChevronRight className="w-3 h-3" />
-                  </button>
-                </div>
-
-                {campaigns.length === 0 ? (
-                  <div className="text-xs text-slate-500 text-center py-8">
-                    Nenhuma campanha criada ainda. Crie campanhas para agrupar canais de tráfego.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5">
-                    {campaigns.slice(0, 4).map((camp) => {
-                      const campClicks =
-                        analytics?.campaignPerformance?.find((c) => c.id === camp.id)?.clicks || 0;
-                      return (
-                        <div
-                          key={camp.id}
-                          onClick={() => handleOpenCampaignDetails(camp.id)}
-                          className="flex items-center justify-between p-3 bg-slate-950 rounded-lg border border-slate-800/80 hover:border-slate-700 transition-colors cursor-pointer"
-                        >
-                          <div>
-                            <div className="text-xs font-semibold text-white flex items-center gap-1.5">
-                              <span>{camp.name}</span>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                                {camp.status}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-400 mt-0.5">
-                              {camp._count?.smartLinks || 0} links vinculados
-                            </div>
-                          </div>
-                          <div className="text-right font-mono">
-                            <span className="text-xs font-semibold text-white block">
-                              {campClicks}
-                            </span>
-                            <span className="text-[10px] text-slate-500">cliques</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Seção 3: Desempenho de Produtos e Ofertas */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <ShoppingBag className="w-4 h-4 text-amber-400" />
-                  Produtos &amp; Ofertas no Período
-                </h3>
-                <button
-                  onClick={() => handleTabChange("products")}
-                  className="text-xs text-[#4267E9] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  Gerenciar catálogo <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
-
-              {products.length === 0 ? (
-                <div className="text-xs text-slate-500 text-center py-8">
-                  Nenhum produto cadastrado no catálogo. Adicione produtos para vincular às suas ofertas de afiliados.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {products.slice(0, 3).map((prod) => {
-                    const prodClicks =
-                      analytics?.productPerformance?.find((p) => p.id === prod.id)?.clicks || 0;
-                    return (
-                      <div
-                        key={prod.id}
-                        onClick={() => handleOpenProductDetails(prod.id)}
-                        className="p-4 bg-slate-950 rounded-lg border border-slate-800 hover:border-slate-700 transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-semibold text-white truncate max-w-[150px]">
-                            {prod.name}
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-[#4267E9] border border-blue-500/20 font-medium">
-                            {prod.platform}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-400 flex justify-between mt-2 font-mono">
-                          <span>{prod.offers?.length || 0} oferta(s)</span>
-                          <span className="text-white font-semibold">{prodClicks} cliques</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Seção 4: Smart Links Recentes ou de Maior Atividade */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Link2 className="w-4 h-4 text-[#4267E9]" />
-                  Smart Links de Maior Atividade
-                </h3>
-                <button
-                  onClick={() => handleTabChange("links")}
-                  className="text-xs text-[#4267E9] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  Ver todos os {links.length} links <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
-
-              {links.length === 0 ? (
-                <div className="text-xs text-slate-500 text-center py-8">
-                  Nenhum Smart Link criado. Crie seu primeiro link para gerar tráfego e atribuição.
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-800/80">
-                  {links.slice(0, 5).map((link) => (
-                    <div
-                      key={link.id}
-                      className="py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold font-mono text-white">
-                            /{link.slug}
-                          </span>
-                          {link.title && (
-                            <span className="text-[11px] text-slate-400 truncate max-w-xs">
-                              • {link.title}
-                            </span>
-                          )}
-                          {link.campaign && (
-                            <span className="text-[10px] bg-[#4267E9]/15 text-[#4267E9] px-1.5 py-0.2 rounded font-medium border border-[#4267E9]/30">
-                              {link.campaign.name}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-mono truncate max-w-md mt-0.5">
-                          {link.destinationUrl}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4 shrink-0 font-mono text-xs">
-                        <div className="text-right">
-                          <span className="font-semibold text-white">{link.clickCount}</span>
-                          <span className="text-slate-500 text-[10px] ml-1">cliques</span>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-semibold text-sky-400">{link.qrScanCount}</span>
-                          <span className="text-slate-500 text-[10px] ml-1">scans</span>
-                        </div>
-                        <button
-                          onClick={() => handleCopy(link.slug, link.id)}
-                          className="p-1.5 bg-slate-950 hover:bg-slate-800 text-slate-300 rounded border border-slate-800 cursor-pointer"
-                          title="Copiar link"
-                        >
-                          {copiedId === link.id ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5 text-[#4267E9]" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <OverviewView
+            user={user}
+            analytics={analytics}
+            links={links}
+            period={period}
+            onPeriodChange={handlePeriodChange}
+            onNavigateToLinks={() => handleTabChange("links")}
+            onQuickShorten={handleQuickShorten}
+            loading={loading || analyticsLoading}
+          />
         )}
 
         {/* =========================================================================
-            ABA 2: SMART LINKS (Gestão Completa de Links e Ciclo de Vida)
+            ABA 2: MEUS LINKS (Design Aprovado: screen (3).png)
             ========================================================================= */}
         {activeTab === "links" && (
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-              <div>
-                <h2 className="text-base font-semibold text-white">Smart Links</h2>
-                <p className="text-xs text-slate-400">
-                  Gerencie links curtos, destinos dinâmicos, ciclo de vida e atribuição a campanhas.
-                </p>
-              </div>
+          <LinksView
+            links={links}
+            onOpenCreate={() => handleTabChange("create")}
+            onEditLink={(link) => {
+              setEditingLink(link);
+              setEditDestinationUrl(link.destinationUrl);
+              setEditTitle(link.title || "");
+              setEditCampaignId(link.campaign?.id || "");
+              setEditProductId(link.product?.id || "");
+              setEditOfferId(link.offer?.id || "");
+            }}
+            onOpenQrModal={(link) => handleOpenQr(link)}
+            onOpenHistoryModal={(link) => handleOpenHistory(link)}
+            onToggleStatus={(id) => {
+              const targetLink = links.find((l) => l.id === id);
+              if (targetLink) handleToggleLinkStatus(targetLink);
+            }}
+            onDeleteLink={(id) => handleDeleteLink(id)}
+            onOpenAnalytics={() => handleTabChange("analytics")}
+            loading={loading}
+          />
+        )}
 
-              <div className="flex items-center gap-2">
-                {/* Filtro de Status de Links */}
-                <div className="flex items-center bg-slate-950 p-1 rounded-lg border border-slate-800 text-xs">
-                  <button
-                    onClick={() => setLinkFilter("all")}
-                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                      linkFilter === "all"
-                        ? "bg-[#4267E9] text-white font-medium"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Todos ({links.length})
-                  </button>
-                  <button
-                    onClick={() => setLinkFilter("ACTIVE")}
-                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                      linkFilter === "ACTIVE"
-                        ? "bg-emerald-600 text-white font-medium"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Ativos ({links.filter((l) => l.status !== "PAUSED").length})
-                  </button>
-                  <button
-                    onClick={() => setLinkFilter("PAUSED")}
-                    className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                      linkFilter === "PAUSED"
-                        ? "bg-amber-600 text-white font-medium"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    Pausados ({links.filter((l) => l.status === "PAUSED").length})
-                  </button>
-                </div>
-
-                <button
-                  onClick={() => setCreateModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer shadow-sm"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Novo Link
-                </button>
-              </div>
-            </div>
-
-            {(() => {
-              const filteredLinks = links.filter((l) => {
-                if (linkFilter === "ACTIVE") return l.status !== "PAUSED";
-                if (linkFilter === "PAUSED") return l.status === "PAUSED";
-                return true;
-              });
-
-              if (filteredLinks.length === 0) {
-                return (
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-12 text-center">
-                    <Link2 className="w-10 h-10 text-[#4267E9] mx-auto mb-3 opacity-60" />
-                    <h3 className="text-base font-semibold text-white mb-1">
-                      {linkFilter === "all"
-                        ? "Nenhum Smart Link criado ainda"
-                        : `Nenhum Smart Link com status "${linkFilter === "ACTIVE" ? "Ativo" : "Pausado"}"`}
-                    </h3>
-                    <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
-                      Encurte uma URL para gerar seu primeiro link com QR Code dinâmico e rastreamento.
-                    </p>
-                    {linkFilter === "all" && (
-                      <button
-                        onClick={() => setCreateModalOpen(true)}
-                        className="px-4 py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
-                      >
-                        Criar Primeiro Link
-                      </button>
-                    )}
-                  </div>
-                );
-              }
-
-              return (
-                <div className="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-sm">
-                  <div className="divide-y divide-slate-800">
-                    {filteredLinks.map((link) => (
-                      <div
-                        key={link.id}
-                        className={`p-4 sm:p-6 transition-colors flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
-                          link.status === "PAUSED"
-                            ? "bg-amber-950/10 hover:bg-amber-950/20 border-l-2 border-l-amber-500"
-                            : "hover:bg-slate-800/40"
-                        }`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <span className="text-sm font-semibold font-mono text-white hover:text-[#4267E9] transition-colors">
-                              /{link.slug}
-                            </span>
-                            {link.title && (
-                              <span className="text-xs text-slate-400 truncate max-w-xs">
-                                • {link.title}
-                              </span>
-                            )}
-
-                            {/* Badge de Status de Ciclo de Vida */}
-                            {link.status === "PAUSED" ? (
-                              <span className="text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-medium flex items-center gap-1">
-                                <Pause className="w-2.5 h-2.5" /> Pausado
-                              </span>
-                            ) : (
-                              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-medium flex items-center gap-1">
-                                <CheckCircle2 className="w-2.5 h-2.5" /> Ativo
-                              </span>
-                            )}
-
-                            {link.campaign && (
-                              <span className="text-[10px] bg-[#4267E9]/15 text-[#4267E9] px-2 py-0.5 rounded font-medium border border-[#4267E9]/30">
-                                Campanha: {link.campaign.name}
-                              </span>
-                            )}
-                            {link.product && (
-                              <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded font-medium border border-amber-500/20">
-                                Produto: {link.product.name}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 text-xs text-slate-400 truncate">
-                            <span className="text-slate-500">Destino:</span>
-                            <a
-                              href={link.destinationUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-slate-300 font-mono truncate max-w-md underline hover:text-[#4267E9]"
-                            >
-                              {link.destinationUrl}
-                            </a>
-                            {link.status === "PAUSED" && (
-                              <span className="text-[11px] text-amber-400/90 font-sans italic ml-1">
-                                (Redirecionamento bloqueado com segurança)
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono mt-1.5">
-                            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                            <span>Criado em: {formatBrDateTime(link.createdAt)}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-4 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
-                          <div className="flex items-center gap-2 text-right font-mono">
-                            <div className="text-center px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
-                              <span className="block text-xs font-semibold text-white">
-                                {link.clickCount}
-                              </span>
-                              <span className="block text-[10px] text-slate-500">Cliques</span>
-                            </div>
-
-                            <div className="text-center px-2.5 py-1 bg-slate-950 rounded-md border border-slate-800">
-                              <span className="block text-xs font-semibold text-sky-400">
-                                {link.qrScanCount}
-                              </span>
-                              <span className="block text-[10px] text-slate-500">QR Scans</span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            {/* Ação de Ciclo de Vida: Pausar / Reativar */}
-                            <button
-                              onClick={() => handleToggleLinkStatus(link)}
-                              disabled={lifecycleActionLoading === link.id}
-                              className={`p-2 rounded-lg border transition-colors cursor-pointer ${
-                                link.status === "PAUSED"
-                                  ? "bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 border-emerald-800/80"
-                                  : "bg-slate-950 hover:bg-amber-950/40 text-slate-300 hover:text-amber-400 border-slate-800"
-                              }`}
-                              title={
-                                link.status === "PAUSED"
-                                  ? "Reativar link curto"
-                                  : "Pausar link (Interrompe redirecionamento público)"
-                              }
-                            >
-                              {link.status === "PAUSED" ? (
-                                <Play className="w-4 h-4 text-emerald-400" />
-                              ) : (
-                                <Pause className="w-4 h-4 text-amber-400" />
-                              )}
-                            </button>
-
-                            <button
-                              onClick={() => handleCopy(link.slug, link.id)}
-                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                              title="Copiar Link Curto"
-                            >
-                              {copiedId === link.id ? (
-                                <Check className="w-4 h-4 text-emerald-400" />
-                              ) : (
-                                <Copy className="w-4 h-4 text-[#4267E9]" />
-                              )}
-                            </button>
-
-                            <button
-                              onClick={() => handleOpenQr(link)}
-                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                              title="Ver QR Code Dinâmico"
-                            >
-                              <QrCode className="w-4 h-4 text-sky-400" />
-                            </button>
-
-                            <button
-                              onClick={() => handleOpenHistory(link)}
-                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-purple-400 rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                              title="Ver Histórico de Alterações"
-                            >
-                              <History className="w-4 h-4 text-purple-400" />
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setEditingLink(link);
-                                setEditDestinationUrl(link.destinationUrl);
-                                setEditTitle(link.title || "");
-                                setEditCampaignId(link.campaign?.id || "");
-                                setEditProductId(link.product?.id || "");
-                                setEditOfferId(link.offer?.id || "");
-                              }}
-                              className="p-2 bg-slate-950 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                              title="Editar Destino e Associações"
-                            >
-                              <Edit3 className="w-4 h-4 text-amber-400" />
-                            </button>
-
-                            <button
-                              onClick={() => handleDeleteLink(link.id)}
-                              className="p-2 bg-slate-950 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400 rounded-lg border border-slate-800 transition-colors cursor-pointer"
-                              title="Excluir Link"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
+        {/* =========================================================================
+            ABA: CRIAR LINK & EDITOR DE QR CODE (Design Aprovado: screen.png)
+            ========================================================================= */}
+        {activeTab === "create" && (
+          <CreateLinkView
+            products={products}
+            campaigns={campaigns}
+            onCreateLink={handleUnifiedCreateLink}
+            onCancel={() => handleTabChange("links")}
+            loading={createLoading}
+          />
         )}
 
         {/* =========================================================================
@@ -2152,6 +1447,7 @@ function DashboardContent() {
             </div>
           </div>
         )}
+        </main>
       </div>
 
       {/* =========================================================================
