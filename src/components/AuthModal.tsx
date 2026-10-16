@@ -97,7 +97,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Seu nome ou marca"
-                  className="w-full pl-8 pr-3 py-2.5 bg-slate-950 border border-slate-800 focus:border-[#4267E9] rounded-lg text-xs text-white placeholder-slate-600 outline-none transition-colors"
+                  className="w-full pl-8 pr-3 py-2.5 bg-slate-950 border border-slate-800 focus:border-purple-500 rounded-lg text-xs text-white placeholder-slate-600 outline-none transition-colors"
                 />
               </div>
             </div>
@@ -117,7 +117,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="seuemail@exemplo.com"
-                className="w-full pl-8 pr-3 py-2.5 bg-slate-950 border border-slate-800 focus:border-[#4267E9] rounded-lg text-xs text-white placeholder-slate-600 outline-none transition-colors"
+                className="w-full pl-8 pr-3 py-2.5 bg-slate-950 border border-slate-800 focus:border-purple-500 rounded-lg text-xs text-white placeholder-slate-600 outline-none transition-colors"
               />
             </div>
           </div>
@@ -136,7 +136,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Mínimo de 6 caracteres"
-                className="w-full pl-8 pr-3 py-2.5 bg-slate-950 border border-slate-800 focus:border-[#4267E9] rounded-lg text-xs text-white placeholder-slate-600 outline-none transition-colors"
+                className="w-full pl-8 pr-3 py-2.5 bg-slate-950 border border-slate-800 focus:border-purple-500 rounded-lg text-xs text-white placeholder-slate-600 outline-none transition-colors"
               />
             </div>
           </div>
@@ -151,7 +151,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-[#4267E9] hover:bg-[#3556D4] text-white font-medium rounded-lg text-xs shadow-sm transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-medium rounded-lg text-xs shadow-md shadow-purple-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             {loading ? (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -174,12 +174,12 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           >
             {isRegister ? (
               <>
-                Já possui conta? <span className="text-[#4267E9] font-medium">Faça login</span>
+                Já possui conta? <span className="text-purple-400 font-medium">Faça login</span>
               </>
             ) : (
               <>
                 Novo no Linkzivo?{" "}
-                <span className="text-[#4267E9] font-medium">Cadastre-se grátis</span>
+                <span className="text-purple-400 font-medium">Cadastre-se grátis</span>
               </>
             )}
           </button>

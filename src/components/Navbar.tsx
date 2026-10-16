@@ -180,7 +180,8 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout, onNavigateTab }: 
           ) : (
             <button
               onClick={onOpenAuth}
-              className="inline-flex items-center gap-1.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium px-4 py-2 rounded-lg shadow-sm transition-colors cursor-pointer"
+              id="btn-entrar-navbar"
+              className="inline-flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-medium px-4 py-2 rounded-lg shadow-md shadow-purple-600/20 transition-all cursor-pointer"
             >
               <UserCheck className="w-3.5 h-3.5" />
               <span>Entrar / Criar Conta</span>
