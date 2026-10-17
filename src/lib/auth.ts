@@ -1,8 +1,72 @@
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { db } from "./db";
 
 const SESSION_COOKIE_NAME = "linkzivo_session";
+
+/**
+ * Obtém e valida o segredo de autenticação.
+ * Em produção: exige impreterivelmente AUTH_SECRET válido com no mínimo 32 caracteres.
+ * Em desenvolvimento/testes locais: provê fallback conveniente sem reintroduzir segredo fraco em produção.
+ */
+function getAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  const isValid = typeof secret === "string" && secret.trim().length >= 32;
+
+  if (process.env.NODE_ENV === "production") {
+    if (!isValid) {
+      throw new Error(
+        "[Fatal Security Error] AUTH_SECRET environment variable is missing or has less than 32 characters in production."
+      );
+    }
+    return secret.trim();
+  }
+
+  return isValid ? secret.trim() : "linkzivo-dev-local-salt-32chars-minimum-token";
+}
+
+/**
+ * Assina um payload de sessão utilizando HMAC-SHA256.
+ * Retorna no formato: <payload>.<hex_hmac>
+ */
+export function signSessionToken(payload: string): string {
+  const secret = getAuthSecret();
+  const signature = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return `${payload}.${signature}`;
+}
+
+/**
+ * Valida a assinatura de um token de sessão com comparação de tempo constante (timingSafeEqual).
+ * Retorna o payload original se válido, ou null se inválido, adulterado ou malformado.
+ */
+export function verifySessionToken(token: string): string | null {
+  if (!token || typeof token !== "string") return null;
+
+  const lastDotIndex = token.lastIndexOf(".");
+  if (lastDotIndex === -1) return null;
+
+  const payload = token.slice(0, lastDotIndex);
+  const signature = token.slice(lastDotIndex + 1);
+
+  if (!payload || !signature) return null;
+
+  const secret = getAuthSecret();
+  const expectedSignature = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+
+  const sigBuffer = Buffer.from(signature, "utf-8");
+  const expectedBuffer = Buffer.from(expectedSignature, "utf-8");
+
+  if (sigBuffer.length !== expectedBuffer.length) {
+    return null;
+  }
+
+  if (!crypto.timingSafeEqual(sigBuffer, expectedBuffer)) {
+    return null;
+  }
+
+  return payload;
+}
 
 export interface SessionUser {
   id: string;
@@ -113,7 +177,8 @@ export async function registerUser(name: string, email: string, password: string
 }
 
 /**
- * Retorna o usuário autenticado na requisição atual através do cookie seguro.
+ * Retorna o usuário autenticado na requisição atual através do cookie seguro assinado.
+ * Valida a assinatura HMAC, a existência e status do usuário e a filiação ativa em WorkspaceMember.
  */
 export async function getSession(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
@@ -122,20 +187,50 @@ export async function getSession(): Promise<SessionUser | null> {
   if (!sessionToken) return null;
 
   try {
-    const [userId, workspaceId] = sessionToken.split(":");
+    // 1. Validação da assinatura criptográfica
+    const verifiedPayload = verifySessionToken(sessionToken);
+    if (!verifiedPayload) return null;
+
+    const [userId, workspaceId] = verifiedPayload.split(":");
     if (!userId || !workspaceId) return null;
 
+    // 2. Validação do usuário e seu status ativo
     const user = await db.user.findUnique({
       where: { id: userId },
     });
 
     if (!user || user.status !== "ACTIVE") return null;
 
-    const workspace = await db.workspace.findUnique({
-      where: { id: workspaceId },
-    });
+    // 3. Validação rigorosa do workspace e da associação em WorkspaceMember
+    let workspace: { id: string; name: string; plan: string } | null = null;
 
-    if (!workspace) return null;
+    if (user.role === "ADMIN") {
+      const ws = await db.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { id: true, name: true, plan: true },
+      });
+      if (!ws) return null;
+      workspace = ws;
+    } else {
+      const membership = await db.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId,
+            userId: user.id,
+          },
+        },
+        include: {
+          workspace: {
+            select: { id: true, name: true, plan: true },
+          },
+        },
+      });
+
+      if (!membership || !membership.workspace) {
+        return null;
+      }
+      workspace = membership.workspace;
+    }
 
     return {
       id: user.id,
@@ -152,16 +247,17 @@ export async function getSession(): Promise<SessionUser | null> {
 }
 
 /**
- * Define o cookie de sessão seguro (HttpOnly, SameSite=Lax, Secure em produção).
+ * Define o cookie de sessão seguro e assinado criptograficamente (HttpOnly, SameSite=Lax, Secure em produção).
  */
 export async function createSessionCookie(user: SessionUser) {
   const cookieStore = await cookies();
-  const token = `${user.id}:${user.workspaceId}`;
+  const rawPayload = `${user.id}:${user.workspaceId}`;
+  const signedToken = signSessionToken(rawPayload);
 
   const isLocalhost = process.env.NEXT_PUBLIC_APP_URL?.includes("localhost") || process.env.PORT !== undefined;
   const isSecure = process.env.NODE_ENV === "production" && !isLocalhost;
 
-  cookieStore.set(SESSION_COOKIE_NAME, token, {
+  cookieStore.set(SESSION_COOKIE_NAME, signedToken, {
     httpOnly: true,
     secure: isSecure,
     sameSite: "lax",

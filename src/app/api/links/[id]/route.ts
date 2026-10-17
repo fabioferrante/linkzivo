@@ -15,6 +15,11 @@ export async function GET(
   const { id } = await params;
   const session = await getSession();
 
+  // Exige autenticação válida antes de consultar ou revelar existência do link
+  if (!session) {
+    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
   const link = await db.smartLink.findUnique({
     where: { id },
     include: {
@@ -33,7 +38,7 @@ export async function GET(
   }
 
   // Se logado e for outro workspace, rejeita (IDOR protection)
-  if (session && link.workspaceId !== session.workspaceId && session.role !== "ADMIN") {
+  if (link.workspaceId !== session.workspaceId && session.role !== "ADMIN") {
     return NextResponse.json({ error: "Acesso não autorizado." }, { status: 403 });
   }
 
@@ -76,7 +81,12 @@ export async function PATCH(
       return NextResponse.json({ error: "Link não encontrado." }, { status: 404 });
     }
 
-    if (session && existingLink.workspaceId !== session.workspaceId && session.role !== "ADMIN") {
+    // Exige autenticação válida para editar o link
+    if (!session) {
+      return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+    }
+
+    if (existingLink.workspaceId !== session.workspaceId && session.role !== "ADMIN") {
       return NextResponse.json({ error: "Permissão negada." }, { status: 403 });
     }
 
@@ -224,7 +234,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Link não encontrado." }, { status: 404 });
   }
 
-  if (session && link.workspaceId !== session.workspaceId && session.role !== "ADMIN") {
+  // Exige autenticação válida para excluir o link
+  if (!session) {
+    return NextResponse.json({ error: "Não autenticado." }, { status: 401 });
+  }
+
+  if (link.workspaceId !== session.workspaceId && session.role !== "ADMIN") {
     return NextResponse.json({ error: "Permissão negada." }, { status: 403 });
   }
 
