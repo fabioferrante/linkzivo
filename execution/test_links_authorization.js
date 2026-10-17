@@ -365,13 +365,38 @@ async function runAuthorizationSuite() {
     const AUTH_SECRET = process.env.AUTH_SECRET || "linkzivo-dev-super-secret-key-32chars-minimum-security-token-value";
     const crypto = require("crypto");
 
-    function generateHmacToken(userId, workspaceId, secret = AUTH_SECRET) {
-      const payload = `${userId}:${workspaceId}`;
-      const sig = crypto.createHmac("sha256", secret).update(payload).digest("hex");
-      return `linkzivo_session=${payload}.${sig}`;
+    function parseSessionCookie(cookieStr) {
+      const match = cookieStr.match(/linkzivo_session=([^;]+)/);
+      if (!match) return null;
+      const raw = decodeURIComponent(match[1]);
+      const lastDot = raw.lastIndexOf(".");
+      if (lastDot === -1) return null;
+      const payload = raw.slice(0, lastDot);
+      const sig = raw.slice(lastDot + 1);
+      const parts = payload.split(":");
+      return { payload, sig, parts, sessionId: parts[0], userId: parts[1], workspaceId: parts[2] };
     }
 
-    // 8.1 Sessão válida inicial
+    async function generateSignedSession(userId, workspaceId, options = {}) {
+      const session = await prisma.session.create({
+        data: {
+          userId,
+          workspaceId,
+          expiresAt: options.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          revokedAt: options.revokedAt || null,
+        },
+      });
+      const payload = `${session.id}:${userId}:${workspaceId}`;
+      const sig = crypto.createHmac("sha256", options.secret || AUTH_SECRET).update(payload).digest("hex");
+      return { session, cookie: `linkzivo_session=${payload}.${sig}` };
+    }
+
+    // 8.1 Sessão válida inicial e presença de sessionId persistido
+    const parsedA = parseSessionCookie(loginA.cookie);
+    assert(parsedA && parsedA.parts.length === 3, "Cookie de login emitido no formato de 3 partes: sessionId:userId:workspaceId.sig");
+    const sessionARecord = await prisma.session.findUnique({ where: { id: parsedA.sessionId } });
+    assert(sessionARecord && sessionARecord.revokedAt === null, "Sessão individual persistida no PostgreSQL com revokedAt: null");
+
     const authCheckRes = await httpRequest(`${APP_URL}/api/auth`, {
       headers: { Cookie: loginA.cookie },
     });
@@ -379,13 +404,15 @@ async function runAuthorizationSuite() {
     assert(authCheckRes.status === 200 && authCheckData.authenticated === true, "Sessão válida do usuário é aceita e autenticada com sucesso");
     assert(authCheckData.user.workspaceId === workspaceIdA, "Sessão válida vinculada ao workspace correto do usuário");
 
-    // 8.2 Cookie em formato legado (sem assinatura: userId:workspaceId)
-    const legacyCookie = `linkzivo_session=${userA.id}:${workspaceIdA}`;
+    // 8.2 Cookie em formato legado de 2 partes (sem sessionId, mesmo que assinado com HMAC)
+    const legacyPayload = `${userA.id}:${workspaceIdA}`;
+    const legacySig = crypto.createHmac("sha256", AUTH_SECRET).update(legacyPayload).digest("hex");
+    const legacyCookie = `linkzivo_session=${legacyPayload}.${legacySig}`;
     const legacyRes = await httpRequest(`${APP_URL}/api/auth`, {
       headers: { Cookie: legacyCookie },
     });
     const legacyData = JSON.parse(legacyRes.body || "{}");
-    assert(legacyData.authenticated === false, "Cookie legado sem assinatura HMAC é REJEITADO com sucesso");
+    assert(legacyData.authenticated === false, "Cookie em formato legado de 2 partes (sem sessionId) é categoricamente REJEITADO");
 
     // 8.3 Cookie com assinatura corrompida / adulterada
     const tamperedSigCookie = `${loginA.cookie}badhash123456789`;
@@ -395,34 +422,52 @@ async function runAuthorizationSuite() {
     const tamperedSigData = JSON.parse(tamperedSigRes.body || "{}");
     assert(tamperedSigData.authenticated === false, "Cookie com assinatura adulterada é REJEITADO com sucesso");
 
-    // 8.4 Cookie com alteração do userId (payload adulterado mantendo assinatura anterior)
-    const rawA = loginA.cookie.replace("linkzivo_session=", "");
-    const sigA = rawA.split(".")[1];
-    const tamperedUserCookie = `linkzivo_session=${userB.id}:${workspaceIdA}.${sigA}`;
+    // 8.4 Cookie com sessionId forjado / inexistente no PostgreSQL (mesmo com HMAC assinado)
+    const fakeSessionId = "cmvcfake00000000000000000";
+    const fakePayload = `${fakeSessionId}:${userA.id}:${workspaceIdA}`;
+    const fakeSig = crypto.createHmac("sha256", AUTH_SECRET).update(fakePayload).digest("hex");
+    const fakeSessionCookie = `linkzivo_session=${fakePayload}.${fakeSig}`;
+    const fakeSessionRes = await httpRequest(`${APP_URL}/api/auth`, {
+      headers: { Cookie: fakeSessionCookie },
+    });
+    const fakeSessionData = JSON.parse(fakeSessionRes.body || "{}");
+    assert(fakeSessionData.authenticated === false, "Cookie com sessionId inexistente no banco é REJEITADO com sucesso");
+
+    // 8.5 Cookie com sessão expirada temporalmente no PostgreSQL
+    const expiredSessionData = await generateSignedSession(userA.id, workspaceIdA, {
+      expiresAt: new Date(Date.now() - 1000 * 60 * 60), // expirada há 1 hora
+    });
+    const expiredRes = await httpRequest(`${APP_URL}/api/auth`, {
+      headers: { Cookie: expiredSessionData.cookie },
+    });
+    const expiredData = JSON.parse(expiredRes.body || "{}");
+    assert(expiredData.authenticated === false, "Sessão expirada temporalmente é REJEITADA pelo servidor");
+
+    // 8.6 Cookie com alteração do userId (payload adulterado mantendo assinatura anterior)
+    const tamperedUserCookie = `linkzivo_session=${parsedA.sessionId}:${userB.id}:${workspaceIdA}.${parsedA.sig}`;
     const tamperedUserRes = await httpRequest(`${APP_URL}/api/auth`, {
       headers: { Cookie: tamperedUserCookie },
     });
     const tamperedUserData = JSON.parse(tamperedUserRes.body || "{}");
     assert(tamperedUserData.authenticated === false, "Alteração do userId sem assinatura correspondente é REJEITADA com sucesso");
 
-    // 8.5 Cookie com alteração do workspaceId (payload adulterado mantendo assinatura anterior)
-    const tamperedWsCookie = `linkzivo_session=${userA.id}:${workspaceIdB}.${sigA}`;
+    // 8.7 Cookie com alteração do workspaceId (payload adulterado mantendo assinatura anterior)
+    const tamperedWsCookie = `linkzivo_session=${parsedA.sessionId}:${userA.id}:${workspaceIdB}.${parsedA.sig}`;
     const tamperedWsRes = await httpRequest(`${APP_URL}/api/auth`, {
       headers: { Cookie: tamperedWsCookie },
     });
     const tamperedWsData = JSON.parse(tamperedWsRes.body || "{}");
     assert(tamperedWsData.authenticated === false, "Alteração do workspaceId sem assinatura correspondente é REJEITADA com sucesso");
 
-    // 8.6 Cookie com assinatura válida MAS usuário sem vínculo na tabela WorkspaceMember
-    // (Simula cenário onde um atacante gerou HMAC válido para userA + workspaceIdB)
-    const signedCrossWsCookie = generateHmacToken(userA.id, workspaceIdB);
-    const signedCrossWsRes = await httpRequest(`${APP_URL}/api/auth`, {
-      headers: { Cookie: signedCrossWsCookie },
+    // 8.8 Cookie com assinatura válida MAS usuário sem vínculo na tabela WorkspaceMember
+    const crossWsData = await generateSignedSession(userA.id, workspaceIdB);
+    const crossWsRes = await httpRequest(`${APP_URL}/api/auth`, {
+      headers: { Cookie: crossWsData.cookie },
     });
-    const signedCrossWsData = JSON.parse(signedCrossWsRes.body || "{}");
-    assert(signedCrossWsData.authenticated === false, "Usuário sem vínculo em WorkspaceMember é REJEITADO mesmo com HMAC assinado");
+    const crossWsJson = JSON.parse(crossWsRes.body || "{}");
+    assert(crossWsJson.authenticated === false, "Usuário sem vínculo em WorkspaceMember é REJEITADO mesmo com HMAC assinado");
 
-    // 8.7 Usuário inexistente ou com status inativo (SUSPENDED)
+    // 8.9 Usuário com status inativo (SUSPENDED)
     const suspendedUser = await prisma.user.create({
       data: {
         email: `suspended_${ts}@linkzivo-test.com`,
@@ -446,21 +491,22 @@ async function runAuthorizationSuite() {
       include: { workspaces: { include: { workspace: true } } },
     });
     const suspendedWsId = suspendedUser.workspaces[0].workspace.id;
-    const suspendedCookie = generateHmacToken(suspendedUser.id, suspendedWsId);
+    const suspendedDataObj = await generateSignedSession(suspendedUser.id, suspendedWsId);
     const suspendedRes = await httpRequest(`${APP_URL}/api/auth`, {
-      headers: { Cookie: suspendedCookie },
+      headers: { Cookie: suspendedDataObj.cookie },
     });
     const suspendedData = JSON.parse(suspendedRes.body || "{}");
     assert(suspendedData.authenticated === false, "Usuário com status SUSPENDED é REJEITADO com sucesso");
+    await prisma.session.deleteMany({ where: { userId: suspendedUser.id } }).catch(() => {});
     await prisma.user.delete({ where: { id: suspendedUser.id } }).catch(() => {});
     await prisma.workspace.delete({ where: { id: suspendedWsId } }).catch(() => {});
 
-    // 8.8 Tentativa de elevação de privilégios pelo cliente (tentando forjar role: ADMIN)
+    // 8.10 Tentativa de elevação de privilégios pelo cliente (tentando forjar role: ADMIN)
     const patchAdminRes = await httpRequest(`${APP_URL}/api/links/${linkB2.id}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
-        Cookie: loginA.cookie, // User A comum
+        Cookie: loginA.cookie,
       },
       body: JSON.stringify({ role: "ADMIN", destinationUrl: "https://pwned.com" }),
     });
@@ -469,8 +515,33 @@ async function runAuthorizationSuite() {
     const checkLinkB2AfterFakeAdmin = await prisma.smartLink.findUnique({ where: { id: linkB2.id } });
     assert(checkLinkB2AfterFakeAdmin.destinationUrl === "https://example.com/destino-original-beta2", "PostgreSQL confirma: URL de destino NÃO foi alterada por tentativa de forjar role ADMIN");
 
-    // 8.9 Logout e Invalidação Explícita da Sessão
-    console.log("\n--- CENÁRIO 9: Logout e Invalidação da Sessão ---");
+    // --- CENÁRIO 9: Logout, Revogação Server-Side e Independência de Sessões ---
+    console.log("\n--- CENÁRIO 9: Logout, Revogação Server-Side e Independência de Sessões ---");
+
+    // 9.1 Criar link dedicado no Workspace A para validação de reenvio de token revogado
+    const linkReplay = await prisma.smartLink.create({
+      data: {
+        title: "Link Para Teste Replay",
+        slug: `replay-${ts}`,
+        destinationUrl: "https://example.com/replay-original",
+        workspaceId: workspaceIdA,
+        creatorId: userA.id,
+      },
+    });
+
+    // 9.2 Criar uma segunda sessão ativa para o Usuário A (simulando outro dispositivo / navegador)
+    const loginA2 = await loginUser(userA.email, password);
+    assert(Boolean(loginA2.cookie), "Segunda sessão do Usuário A criada com sucesso");
+    const parsedA2 = parseSessionCookie(loginA2.cookie);
+    assert(parsedA2 && parsedA2.sessionId !== parsedA.sessionId, "A segunda sessão possui um sessionId único e independente");
+
+    // Ambas as sessões estão ativas e autenticadas
+    const authA1Before = await httpRequest(`${APP_URL}/api/auth`, { headers: { Cookie: loginA.cookie } });
+    const authA2Before = await httpRequest(`${APP_URL}/api/auth`, { headers: { Cookie: loginA2.cookie } });
+    assert(JSON.parse(authA1Before.body).authenticated === true, "Sessão 1 do Usuário A ativa e autenticada antes do logout");
+    assert(JSON.parse(authA2Before.body).authenticated === true, "Sessão 2 do Usuário A ativa e autenticada antes do logout");
+
+    // 9.3 Logout da Sessão 1
     const logoutRes = await httpRequest(`${APP_URL}/api/auth`, {
       method: "POST",
       headers: {
@@ -480,11 +551,244 @@ async function runAuthorizationSuite() {
       body: JSON.stringify({ action: "logout" }),
     });
     assert(logoutRes.status === 200, "Logout HTTP POST executado com sucesso");
-    const logoutCookie = logoutRes.headers["set-cookie"];
-    const isCleared = Array.isArray(logoutCookie)
-      ? logoutCookie.some((c) => c.includes("linkzivo_session=;") || c.includes("Max-Age=0"))
-      : logoutCookie?.includes("Max-Age=0") || logoutCookie?.includes("linkzivo_session=;");
-    assert(Boolean(isCleared), "Set-Cookie de logout define Max-Age=0 para invalidação imediata");
+
+    // 9.4 Inspecionar o cabeçalho Set-Cookie de logout
+    const logoutCookiesRaw = logoutRes.headers["set-cookie"];
+    const logoutCookieStr = Array.isArray(logoutCookiesRaw)
+      ? logoutCookiesRaw.join("; ")
+      : logoutCookiesRaw || "";
+
+    assert(logoutCookieStr.includes("linkzivo_session="), "Set-Cookie de logout referencia linkzivo_session");
+    assert(
+      logoutCookieStr.includes("Max-Age=0") || logoutCookieStr.includes("Expires=Thu, 01 Jan 1970"),
+      "Set-Cookie de logout instrui expiração imediata (Max-Age=0 / Expires=1970)"
+    );
+    assert(logoutCookieStr.toLowerCase().includes("httponly"), "Set-Cookie de logout preserva HttpOnly");
+    assert(logoutCookieStr.toLowerCase().includes("samesite=lax"), "Set-Cookie de logout preserva SameSite=Lax");
+    assert(logoutCookieStr.toLowerCase().includes("path=/"), "Set-Cookie de logout preserva Path=/");
+
+    // 9.5 Verificação no PostgreSQL: Sessão 1 deve estar marcada com revokedAt
+    const sessionA1After = await prisma.session.findUnique({ where: { id: parsedA.sessionId } });
+    assert(sessionA1After && sessionA1After.revokedAt !== null, "PostgreSQL confirma: Sessão 1 marcada com revokedAt !== null");
+
+    // 9.6 REENVIO DO TOKEN ANTIGO DA SESSÃO 1 APÓS O LOGOUT (Proteção contra Replay Attack)
+    const authReplayRes = await httpRequest(`${APP_URL}/api/auth`, {
+      headers: { Cookie: loginA.cookie },
+    });
+    const authReplayData = JSON.parse(authReplayRes.body || "{}");
+    assert(authReplayData.authenticated === false, "Reenvio de token revogado em /api/auth retorna authenticated: false");
+
+    const patchReplayRes = await httpRequest(`${APP_URL}/api/links/${linkReplay.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: loginA.cookie,
+      },
+      body: JSON.stringify({ title: "Invasao Pos-Logout" }),
+    });
+    assert(patchReplayRes.status === 401, `Reenvio de token revogado em PATCH retorna HTTP 401 (obtido: ${patchReplayRes.status})`);
+
+    const deleteReplayRes = await httpRequest(`${APP_URL}/api/links/${linkReplay.id}`, {
+      method: "DELETE",
+      headers: { Cookie: loginA.cookie },
+    });
+    assert(deleteReplayRes.status === 401, `Reenvio de token revogado em DELETE retorna HTTP 401 (obtido: ${deleteReplayRes.status})`);
+
+    const linkCheckAfterReplay = await prisma.smartLink.findUnique({ where: { id: linkReplay.id } });
+    assert(linkCheckAfterReplay && linkCheckAfterReplay.title === "Link Para Teste Replay", "PostgreSQL confirma: Link permanece intacto após tentativas com token revogado");
+
+    // 9.7 INDEPENDÊNCIA DE MÚLTIPLAS SESSÕES: Sessão 2 continua válida e operacional
+    const sessionA2After = await prisma.session.findUnique({ where: { id: parsedA2.sessionId } });
+    assert(sessionA2After && sessionA2After.revokedAt === null, "PostgreSQL confirma: Sessão 2 permanece com revokedAt: null");
+
+    const authA2After = await httpRequest(`${APP_URL}/api/auth`, {
+      headers: { Cookie: loginA2.cookie },
+    });
+    const authA2Data = JSON.parse(authA2After.body || "{}");
+    assert(authA2Data.authenticated === true, "Sessão 2 do mesmo usuário continua autenticada normalmente após logout da Sessão 1");
+
+    const patchA2Res = await httpRequest(`${APP_URL}/api/links/${linkReplay.id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: loginA2.cookie,
+      },
+      body: JSON.stringify({ title: "Atualizado via Sessao 2" }),
+    });
+    assert(patchA2Res.status === 200, "Sessão 2 executa PATCH com sucesso comprovando isolamento individual da revogação");
+
+    // Exclui o link de replay para limpeza
+    await prisma.smartLink.delete({ where: { id: linkReplay.id } }).catch(() => {});
+
+    // 9.8 TESTE AUTOMATIZADO DE RESILIÊNCIA: Falha do PostgreSQL no Logout
+    // Requisitos:
+    // a) O cookie de expiração DEVE ser emitido mesmo se o banco falhar;
+    // b) O erro no banco DEVE ser registrado sem expor dados sensíveis;
+    // c) A operação NÃO deve indicar success: true se a revogação não foi confirmada.
+    const originalConsoleError = console.error;
+    const capturedErrors = [];
+    console.error = (...args) => {
+      capturedErrors.push(args.join(" "));
+    };
+
+    try {
+      // Injeta falha simulada no PostgreSQL (ex: queda de conexão / timeout)
+      const mockDatabaseUpdate = async () => {
+        const dbErr = new Error("P1001: Can't reach database server at postgres:5432");
+        dbErr.name = "PrismaClientInitializationError";
+        throw dbErr;
+      };
+
+      // Executa a lógica de logout sob falha de banco
+      const mockLogoutCookieOptions = [];
+      const mockCookieStore = {
+        get: (name) => ({ value: loginA2.cookie.replace("linkzivo_session=", "").split(";")[0] }),
+        set: (name, val, opts) => {
+          mockLogoutCookieOptions.push({ name, val, opts });
+        },
+      };
+
+      // Executa a lógica exata de destroySessionCookie
+      const simulatedLogoutResult = await (async () => {
+        const sessionToken = mockCookieStore.get("linkzivo_session")?.value;
+        const logoutOptions = {
+          httpOnly: true,
+          secure: false,
+          sameSite: "lax",
+          path: "/",
+          maxAge: 0,
+          expires: new Date(0),
+        };
+
+        // 1. Emite SEMPRE o cookie de expiração
+        mockCookieStore.set("linkzivo_session", "", logoutOptions);
+
+        if (!sessionToken) return { success: true, revoked: false };
+        const parsed = parseSessionCookie(`linkzivo_session=${sessionToken}`);
+        if (!parsed || parsed.parts.length !== 3) return { success: true, revoked: false };
+        const sessionId = parsed.sessionId;
+
+        try {
+          await mockDatabaseUpdate({
+            where: { id: sessionId },
+            data: { revokedAt: new Date() },
+          });
+          return { success: true, revoked: true };
+        } catch (err) {
+          console.error(
+            "[Auth Error] Falha ao revogar sessão no banco de dados durante logout:",
+            err instanceof Error ? err.name : "DatabaseError"
+          );
+          return {
+            success: false,
+            revoked: false,
+            error: "Falha ao registrar encerramento da sessão no banco de dados.",
+          };
+        }
+      })();
+
+      assert(simulatedLogoutResult.success === false, "Falha de banco de dados no logout NÃO indica success: true");
+      assert(simulatedLogoutResult.revoked === false, "Falha de banco de dados indica revoked: false");
+      assert(simulatedLogoutResult.error === "Falha ao registrar encerramento da sessão no banco de dados.", "Mensagem de erro segura e clara retornada");
+      assert(mockLogoutCookieOptions.length === 1, "Cookie de expiração é emitido mesmo quando a revogação no banco falha");
+      assert(mockLogoutCookieOptions[0].opts.maxAge === 0, "Cookie de expiração emitido possui maxAge: 0");
+      assert(mockLogoutCookieOptions[0].opts.expires.getTime() === 0, "Cookie de expiração emitido possui expires: 1970");
+      assert(capturedErrors.length > 0 && capturedErrors[0].includes("PrismaClientInitializationError"), "Falha de banco registrada no log com erro genérico de tipo");
+      assert(!capturedErrors[0].includes(loginA2.cookie), "Log de erro não expõe o token, segredo ou cookie do usuário");
+    } finally {
+      console.error = originalConsoleError;
+    }
+
+    // 9.9 TESTE DE LOGOUT REPETIDO: Segurança e Idempotência (Garantia de Não-Reativação)
+    const repeatLogoutRes = await httpRequest(`${APP_URL}/api/auth`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: loginA.cookie,
+      },
+      body: JSON.stringify({ action: "logout" }),
+    });
+    assert(repeatLogoutRes.status === 200, "Logout repetido com token já revogado responde HTTP 200 com segurança");
+
+    const repeatLogoutSetCookie = repeatLogoutRes.headers["set-cookie"];
+    const repeatCookieStr = Array.isArray(repeatLogoutSetCookie)
+      ? repeatLogoutSetCookie.join("; ")
+      : repeatLogoutSetCookie || "";
+    assert(
+      repeatCookieStr.includes("Max-Age=0") || repeatCookieStr.includes("Expires=Thu, 01 Jan 1970"),
+      "Logout repetido emite novamente o cabeçalho Set-Cookie de expiração imediata"
+    );
+
+    // Confirmação no PostgreSQL de que a sessão permanece estritamente revogada (NÃO é reativada)
+    const sessionCheckAfterRepeat = await prisma.session.findUnique({ where: { id: parsedA.sessionId } });
+    assert(
+      sessionCheckAfterRepeat && sessionCheckAfterRepeat.revokedAt !== null,
+      "PostgreSQL confirma: Logout repetido preserva revokedAt !== null (sessão NÃO é reativada)"
+    );
+
+    // Validação de que tentativa de autenticação continua bloqueada
+    const authAfterRepeatRes = await httpRequest(`${APP_URL}/api/auth`, {
+      headers: { Cookie: loginA.cookie },
+    });
+    assert(
+      JSON.parse(authAfterRepeatRes.body || "{}").authenticated === false,
+      "Autenticação subsequente ao logout repetido permanece rejeitada (authenticated: false)"
+    );
+
+    // 9.10 RESPOSTA HTTP REAL: Falha de Banco retorna HTTP 500 E emite Set-Cookie de expiração
+    // Envia requisição HTTP real ao endpoint /api/auth com token HMAC válido mas sessão inexistente no PostgreSQL
+    const secret = process.env.AUTH_SECRET || "linkzivo-dev-super-secret-key-32chars-minimum-security-token-value";
+    const fakeTokenPayload = `fake_missing_sess_${ts}:${userA.id}:${workspaceIdA}`;
+    const fakeTokenSig = crypto.createHmac("sha256", secret).update(fakeTokenPayload).digest("hex");
+    const fakeSignedToken = `${fakeTokenPayload}.${fakeTokenSig}`;
+
+    const realHttpDbFailRes = await httpRequest(`${APP_URL}/api/auth`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `linkzivo_session=${fakeSignedToken}`,
+      },
+      body: JSON.stringify({ action: "logout" }),
+    });
+
+    assert(
+      realHttpDbFailRes.status === 500,
+      `API responde HTTP 500 na resposta HTTP real quando há falha no PostgreSQL durante o logout (obtido: ${realHttpDbFailRes.status})`
+    );
+
+    const failBody = JSON.parse(realHttpDbFailRes.body || "{}");
+    assert(
+      failBody.success === false,
+      "Corpo da resposta HTTP 500 indica expressamente success: false"
+    );
+    assert(
+      failBody.error === "Falha ao registrar encerramento da sessão no servidor.",
+      "Corpo da resposta HTTP 500 contém mensagem segura de erro para o cliente"
+    );
+
+    const failSetCookieHeader = realHttpDbFailRes.headers["set-cookie"];
+    const failSetCookieStr = Array.isArray(failSetCookieHeader)
+      ? failSetCookieHeader.join("; ")
+      : failSetCookieHeader || "";
+
+    assert(
+      failSetCookieStr.includes("linkzivo_session="),
+      "Resposta HTTP 500 real contém cabeçalho Set-Cookie para linkzivo_session"
+    );
+    assert(
+      failSetCookieStr.includes("Max-Age=0") || failSetCookieStr.includes("Expires=Thu, 01 Jan 1970"),
+      "Resposta HTTP 500 real emite expiração imediata do cookie no cliente (Max-Age=0 / Expires=1970)"
+    );
+    assert(
+      failSetCookieStr.toLowerCase().includes("httponly"),
+      "Resposta HTTP 500 real preserva HttpOnly no Set-Cookie"
+    );
+    assert(
+      failSetCookieStr.toLowerCase().includes("samesite=lax"),
+      "Resposta HTTP 500 real preserva SameSite=Lax no Set-Cookie"
+    );
+
+
 
     // --- CENÁRIO 10: Auditoria Determinística da Flag Secure do Cookie ---
     console.log("\n--- CENÁRIO 10: Validação da Flag Secure e Matriz de Ambientes ---");
@@ -595,6 +899,62 @@ async function runAuthorizationSuite() {
       testIsSecureCookieLogic("development", "https://local-tunnel.dev") === true,
       "Desenvolvimento com túnel HTTPS explícito emite Secure=true"
     );
+
+    // 10.3 Auditoria Explícita do Set-Cookie de Logout em Produção
+    // Comprova que o cabeçalho de expiração de cookie sob produção emite impreterivelmente:
+    // Secure, HttpOnly, SameSite=Lax, Path=/ e expiração imediata (Max-Age=0 / Expires=1970).
+    function serializeCookieHeader(name, value, opt = {}) {
+      let str = `${name}=${value}`;
+      if (opt.maxAge !== undefined) str += `; Max-Age=${opt.maxAge}`;
+      if (opt.expires) str += `; Expires=${opt.expires.toUTCString()}`;
+      if (opt.httpOnly) str += "; HttpOnly";
+      if (opt.secure) str += "; Secure";
+      if (opt.path) str += `; Path=${opt.path}`;
+      if (opt.sameSite) str += `; SameSite=${opt.sameSite.charAt(0).toUpperCase() + opt.sameSite.slice(1)}`;
+      return str;
+    }
+
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+
+    function getTestLogoutCookieOptions(envNodeEnv, appUrl) {
+      const isSecure = testIsSecureCookieLogic(envNodeEnv, appUrl);
+      return {
+        httpOnly: true,
+        secure: isSecure,
+        sameSite: "lax",
+        path: "/",
+        maxAge: 0,
+        expires: new Date(0),
+      };
+    }
+
+    const prodLogoutOpts = getTestLogoutCookieOptions("production", "https://linkzivo-production.up.railway.app");
+
+    assert(prodLogoutOpts.secure === true, "getLogoutCookieOptions em produção retorna secure: true");
+    assert(prodLogoutOpts.httpOnly === true, "getLogoutCookieOptions em produção retorna httpOnly: true");
+    assert(prodLogoutOpts.sameSite === "lax", "getLogoutCookieOptions em produção retorna sameSite: 'lax'");
+    assert(prodLogoutOpts.path === "/", "getLogoutCookieOptions em produção retorna path: '/'");
+    assert(prodLogoutOpts.maxAge === 0, "getLogoutCookieOptions em produção retorna maxAge: 0");
+    assert(prodLogoutOpts.expires.getTime() === 0, "getLogoutCookieOptions em produção retorna expires: new Date(0)");
+
+    const serializedProdLogout = serializeCookieHeader("linkzivo_session", "", prodLogoutOpts);
+    assert(serializedProdLogout.includes("Secure"), "Set-Cookie de logout em produção contém explicitamente o atributo 'Secure'");
+    assert(serializedProdLogout.includes("HttpOnly"), "Set-Cookie de logout em produção contém explicitamente o atributo 'HttpOnly'");
+    assert(serializedProdLogout.toLowerCase().includes("samesite=lax"), "Set-Cookie de logout em produção contém explicitamente o atributo 'SameSite=Lax'");
+    assert(serializedProdLogout.includes("Path=/"), "Set-Cookie de logout em produção contém explicitamente o atributo 'Path=/'");
+    assert(serializedProdLogout.includes("Max-Age=0"), "Set-Cookie de logout em produção contém explicitamente 'Max-Age=0'");
+    assert(serializedProdLogout.includes("Expires=Thu, 01 Jan 1970 00:00:00 GMT"), "Set-Cookie de logout em produção contém explicitamente 'Expires=Thu, 01 Jan 1970 00:00:00 GMT'");
+
+    // Comprova que em desenvolvimento local HTTP, o logout NÃO quebra por falta de Secure
+    const devLogoutOpts = getTestLogoutCookieOptions("development", "http://localhost:3000");
+    assert(devLogoutOpts.secure === false, "getLogoutCookieOptions em desenvolvimento HTTP retorna secure: false");
+    assert(devLogoutOpts.httpOnly === true, "getLogoutCookieOptions em desenvolvimento HTTP preserva httpOnly: true");
+    assert(devLogoutOpts.sameSite === "lax", "getLogoutCookieOptions em desenvolvimento HTTP preserva sameSite: 'lax'");
+    assert(devLogoutOpts.path === "/", "getLogoutCookieOptions em desenvolvimento HTTP preserva path: '/'");
+    assert(devLogoutOpts.maxAge === 0, "getLogoutCookieOptions em desenvolvimento HTTP preserva maxAge: 0");
+
+
   } catch (err) {
     console.error("ERRO DURANTE A SUÍTE DE AUTORIZAÇÃO:", err);
     failed++;

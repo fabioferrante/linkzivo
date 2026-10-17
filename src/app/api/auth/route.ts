@@ -18,7 +18,13 @@ export async function GET() {
 }
 
 export async function DELETE() {
-  await destroySessionCookie();
+  const result = await destroySessionCookie();
+  if (!result.success) {
+    return NextResponse.json(
+      { success: false, error: "Falha ao registrar encerramento da sessão no servidor." },
+      { status: 500, headers: NO_CACHE_HEADERS }
+    );
+  }
   return NextResponse.json(
     { success: true, message: "Sessão encerrada com sucesso." },
     { headers: NO_CACHE_HEADERS }
@@ -30,7 +36,13 @@ export async function POST(request: NextRequest) {
     const { action, email, password, name } = await request.json();
 
     if (action === "logout") {
-      await destroySessionCookie();
+      const result = await destroySessionCookie();
+      if (!result.success) {
+        return NextResponse.json(
+          { success: false, error: "Falha ao registrar encerramento da sessão no servidor." },
+          { status: 500, headers: NO_CACHE_HEADERS }
+        );
+      }
       return NextResponse.json({ success: true }, { headers: NO_CACHE_HEADERS });
     }
 

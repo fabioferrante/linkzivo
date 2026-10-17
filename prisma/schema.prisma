@@ -23,6 +23,7 @@ model User {
   workspaces        WorkspaceMember[]
   createdLinks      SmartLink[]
   auditLogs         AuditLog[]
+  sessions          Session[]
 }
 
 model Workspace {
@@ -39,6 +40,7 @@ model Workspace {
   channels      Channel[]
   smartLinks    SmartLink[]
   subscriptions Subscription[]
+  sessions      Session[]
 }
 
 model WorkspaceMember {
@@ -335,5 +337,21 @@ model QrScanLock {
 
   @@index([smartLinkId])
   @@index([lockedUntil])
+}
+
+model Session {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([workspaceId])
 }
 

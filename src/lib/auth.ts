@@ -43,11 +43,20 @@ export function signSessionToken(payload: string): string {
 export function verifySessionToken(token: string): string | null {
   if (!token || typeof token !== "string") return null;
 
-  const lastDotIndex = token.lastIndexOf(".");
+  let decodedToken = token;
+  try {
+    if (token.includes("%")) {
+      decodedToken = decodeURIComponent(token);
+    }
+  } catch {
+    return null;
+  }
+
+  const lastDotIndex = decodedToken.lastIndexOf(".");
   if (lastDotIndex === -1) return null;
 
-  const payload = token.slice(0, lastDotIndex);
-  const signature = token.slice(lastDotIndex + 1);
+  const payload = decodedToken.slice(0, lastDotIndex);
+  const signature = decodedToken.slice(lastDotIndex + 1);
 
   if (!payload || !signature) return null;
 
@@ -187,21 +196,49 @@ export async function getSession(): Promise<SessionUser | null> {
   if (!sessionToken) return null;
 
   try {
-    // 1. Validação da assinatura criptográfica
+    // 1. Validação estrita da assinatura criptográfica (sem tocar no banco se for forjado)
     const verifiedPayload = verifySessionToken(sessionToken);
     if (!verifiedPayload) return null;
 
-    const [userId, workspaceId] = verifiedPayload.split(":");
-    if (!userId || !workspaceId) return null;
+    const parts = verifiedPayload.split(":");
+    if (parts.length !== 3) {
+      // Rejeita tokens legados de 2 partes ou malformados sem sessionId rastreável
+      return null;
+    }
 
-    // 2. Validação do usuário e seu status ativo
-    const user = await db.user.findUnique({
-      where: { id: userId },
+    const [sessionId, userId, workspaceId] = parts;
+    if (!sessionId || !userId || !workspaceId) return null;
+
+    // 2. Verificação server-side da sessão individual persistida no PostgreSQL
+    const sessionRecord = await db.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        user: true,
+      },
     });
 
+    if (!sessionRecord) return null;
+
+    // 3. Validação de revogação e expiração server-side
+    if (sessionRecord.revokedAt !== null) {
+      // Sessão foi explicitamente revogada (logout anterior)
+      return null;
+    }
+
+    if (sessionRecord.expiresAt < new Date()) {
+      // Sessão expirou temporalmente
+      return null;
+    }
+
+    // 4. Integridade relacional: a sessão pertence exatamente ao usuário e workspace indicados
+    if (sessionRecord.userId !== userId || sessionRecord.workspaceId !== workspaceId) {
+      return null;
+    }
+
+    const user = sessionRecord.user;
     if (!user || user.status !== "ACTIVE") return null;
 
-    // 3. Validação rigorosa do workspace e da associação em WorkspaceMember
+    // 5. Validação rigorosa do workspace e da associação em WorkspaceMember
     let workspace: { id: string; name: string; plan: string } | null = null;
 
     if (user.role === "ADMIN") {
@@ -302,10 +339,22 @@ export function isSecureCookie(): boolean {
 
 /**
  * Define o cookie de sessão seguro e assinado criptograficamente (HttpOnly, SameSite=Lax, Secure em HTTPS/produção).
+ * Persiste a sessão individualmente no PostgreSQL com validade de 30 dias.
  */
 export async function createSessionCookie(user: SessionUser) {
   const cookieStore = await cookies();
-  const rawPayload = `${user.id}:${user.workspaceId}`;
+
+  // 1. Cria a sessão individual persistida no PostgreSQL
+  const session = await db.session.create({
+    data: {
+      userId: user.id,
+      workspaceId: user.workspaceId,
+      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), // 30 dias
+    },
+  });
+
+  // 2. Monta o payload unívoco de 3 partes: sessionId:userId:workspaceId
+  const rawPayload = `${session.id}:${user.id}:${user.workspaceId}`;
   const signedToken = signSessionToken(rawPayload);
 
   cookieStore.set(SESSION_COOKIE_NAME, signedToken, {
@@ -318,18 +367,78 @@ export async function createSessionCookie(user: SessionUser) {
 }
 
 /**
- * Remove o cookie de sessão de forma explícita com expiração imediata.
+ * Retorna as opções padronizadas para emissão do cookie de expiração imediata.
+ * Em produção: preserva estritamente Secure=true, HttpOnly e SameSite=Lax.
  */
-export async function destroySessionCookie() {
-  const cookieStore = await cookies();
-
-  cookieStore.set(SESSION_COOKIE_NAME, "", {
+export function getLogoutCookieOptions() {
+  return {
     httpOnly: true,
     secure: isSecureCookie(),
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: 0,
     expires: new Date(0),
-  });
-  cookieStore.delete(SESSION_COOKIE_NAME);
+  };
+}
+
+export interface LogoutResult {
+  success: boolean;
+  revoked: boolean;
+  error?: string;
+}
+
+/**
+ * Revoga a sessão ativa no servidor (PostgreSQL) e emite o cookie de expiração imediata.
+ * Preserva os atributos Secure, HttpOnly e SameSite=Lax sem sobrescrita.
+ * Garante que o cookie de expiração é emitido mesmo se a revogação no banco falhar,
+ * registrando erros sem expor dados sensíveis e informando o status da operação ao chamador.
+ */
+export async function destroySessionCookie(): Promise<LogoutResult> {
+  const cookieStore = await cookies();
+  const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+
+  // 1. Emite SEMPRE o cookie de expiração com os atributos de segurança corretos
+  // ATENÇÃO: NÃO chamar cookieStore.delete() logo após, pois o Next.js App Router
+  // sobrescreve os atributos customizados (Secure, HttpOnly, SameSite) com valores default.
+  cookieStore.set(SESSION_COOKIE_NAME, "", getLogoutCookieOptions());
+
+  // 2. Se não havia token enviado, a expiração local foi emitida e não há sessão no banco para revogar
+  if (!sessionToken) {
+    return { success: true, revoked: false };
+  }
+
+  const verifiedPayload = verifySessionToken(sessionToken);
+  if (!verifiedPayload) {
+    return { success: true, revoked: false };
+  }
+
+  const parts = verifiedPayload.split(":");
+  if (parts.length !== 3) {
+    return { success: true, revoked: false };
+  }
+
+  const [sessionId] = parts;
+  if (!sessionId) {
+    return { success: true, revoked: false };
+  }
+
+  // 3. Tenta revogar a sessão no PostgreSQL com registro de erro seguro
+  try {
+    await db.session.update({
+      where: { id: sessionId },
+      data: { revokedAt: new Date() },
+    });
+    return { success: true, revoked: true };
+  } catch (err: unknown) {
+    // Registra falha de infraestrutura sem expor tokens, hashes ou dados pessoais
+    console.error(
+      "[Auth Error] Falha ao revogar sessão no banco de dados durante logout:",
+      err instanceof Error ? err.name : "DatabaseError"
+    );
+    return {
+      success: false,
+      revoked: false,
+      error: "Falha ao registrar encerramento da sessão no banco de dados.",
+    };
+  }
 }
