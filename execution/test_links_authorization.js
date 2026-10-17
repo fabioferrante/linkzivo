@@ -54,7 +54,7 @@ async function loginUser(email, password) {
     ? rawCookies.map((c) => c.split(";")[0]).join("; ")
     : rawCookies?.split(";")[0] || "";
 
-  return { status: res.status, cookie: cookieHeader };
+  return { status: res.status, cookie: cookieHeader, rawSetCookie: rawCookies };
 }
 
 async function runAuthorizationSuite() {
@@ -219,7 +219,25 @@ async function runAuthorizationSuite() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ destinationUrl: "https://hacker.com/malicious-redirect" }),
     });
-    assert(anonPatchRes.status === 401, `PATCH não autenticado retorna HTTP 401 (obtido: ${anonPatchRes.status})`);
+    assert(anonPatchRes.status === 401, `PATCH não autenticado para ID existente retorna HTTP 401 (obtido: ${anonPatchRes.status})`);
+
+    const anonPatchFakeRes = await httpRequest(`${APP_URL}/api/links/${fakeNonExistentId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ destinationUrl: "https://hacker.com/malicious-redirect" }),
+    });
+    assert(anonPatchFakeRes.status === 401, `PATCH não autenticado para ID INEXISTENTE retorna HTTP 401 sem revelar 404 (obtido: ${anonPatchFakeRes.status})`);
+
+    // PATCH autenticado para ID inexistente deve retornar 404
+    const authPatchFakeRes = await httpRequest(`${APP_URL}/api/links/${fakeNonExistentId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: loginA.cookie,
+      },
+      body: JSON.stringify({ destinationUrl: "https://example.com/fake-update" }),
+    });
+    assert(authPatchFakeRes.status === 404, `PATCH autenticado para ID inexistente retorna HTTP 404 (obtido: ${authPatchFakeRes.status})`);
 
     // Confirmação no PostgreSQL de que o link não foi alterado
     const checkLinkAfterAnonPatch = await prisma.smartLink.findUnique({ where: { id: linkA.id } });
@@ -230,7 +248,19 @@ async function runAuthorizationSuite() {
     const anonDeleteRes = await httpRequest(`${APP_URL}/api/links/${linkA.id}`, {
       method: "DELETE",
     });
-    assert(anonDeleteRes.status === 401, `DELETE não autenticado retorna HTTP 401 (obtido: ${anonDeleteRes.status})`);
+    assert(anonDeleteRes.status === 401, `DELETE não autenticado para ID existente retorna HTTP 401 (obtido: ${anonDeleteRes.status})`);
+
+    const anonDeleteFakeRes = await httpRequest(`${APP_URL}/api/links/${fakeNonExistentId}`, {
+      method: "DELETE",
+    });
+    assert(anonDeleteFakeRes.status === 401, `DELETE não autenticado para ID INEXISTENTE retorna HTTP 401 sem revelar 404 (obtido: ${anonDeleteFakeRes.status})`);
+
+    // DELETE autenticado para ID inexistente deve retornar 404
+    const authDeleteFakeRes = await httpRequest(`${APP_URL}/api/links/${fakeNonExistentId}`, {
+      method: "DELETE",
+      headers: { Cookie: loginA.cookie },
+    });
+    assert(authDeleteFakeRes.status === 404, `DELETE autenticado para ID inexistente retorna HTTP 404 (obtido: ${authDeleteFakeRes.status})`);
 
     // Confirmação no PostgreSQL de que o link ainda existe intacto
     const checkLinkAfterAnonDelete = await prisma.smartLink.findUnique({ where: { id: linkA.id } });
@@ -455,6 +485,116 @@ async function runAuthorizationSuite() {
       ? logoutCookie.some((c) => c.includes("linkzivo_session=;") || c.includes("Max-Age=0"))
       : logoutCookie?.includes("Max-Age=0") || logoutCookie?.includes("linkzivo_session=;");
     assert(Boolean(isCleared), "Set-Cookie de logout define Max-Age=0 para invalidação imediata");
+
+    // --- CENÁRIO 10: Auditoria Determinística da Flag Secure do Cookie ---
+    console.log("\n--- CENÁRIO 10: Validação da Flag Secure e Matriz de Ambientes ---");
+
+    // 10.1 Inspecionar a emissão real no login local (HTTP puro)
+    const setCookieStr = Array.isArray(loginA.rawSetCookie)
+      ? loginA.rawSetCookie.join("; ")
+      : loginA.rawSetCookie || "";
+
+    assert(setCookieStr.toLowerCase().includes("httponly"), "Cookie em desenvolvimento contém HttpOnly");
+    assert(setCookieStr.toLowerCase().includes("samesite=lax"), "Cookie em desenvolvimento contém SameSite=Lax");
+    assert(setCookieStr.toLowerCase().includes("path=/"), "Cookie em desenvolvimento contém Path=/");
+    assert(!setCookieStr.toLowerCase().includes("secure"), "Cookie em desenvolvimento local HTTP NÃO contém Secure (evitando descarte no navegador)");
+
+    // 10.2 Testar a lógica matemática e determinística de isSecureCookie() isoladamente
+    function testIsSecureCookieLogic(envNodeEnv, appUrl) {
+      const isProd = envNodeEnv === "production";
+      const rawAppUrl = appUrl?.trim();
+
+      // Em produção, Secure é estritamente obrigatório incondicionalmente
+      if (isProd) {
+        return true;
+      }
+
+      // Em desenvolvimento / ambiente não-produção:
+      if (rawAppUrl) {
+        try {
+          const parsedUrl = new URL(rawAppUrl);
+          if (parsedUrl.protocol === "https:") {
+            return true;
+          }
+        } catch {
+          return false;
+        }
+      }
+
+      return false;
+    }
+
+    // Regra 1: Produção sob HTTPS
+    assert(
+      testIsSecureCookieLogic("production", "https://linkzivo-production.up.railway.app") === true,
+      "Produção sob HTTPS emite Secure=true"
+    );
+    assert(
+      testIsSecureCookieLogic("production", "https://linkzivo.com") === true,
+      "Produção com domínio customizado HTTPS emite Secure=true"
+    );
+
+    // Regra 2: Produção com URL ausente ou vazia
+    assert(
+      testIsSecureCookieLogic("production", undefined) === true,
+      "Produção sem NEXT_PUBLIC_APP_URL assume Secure=true incondicionalmente"
+    );
+    assert(
+      testIsSecureCookieLogic("production", "") === true,
+      "Produção com NEXT_PUBLIC_APP_URL vazia assume Secure=true incondicionalmente"
+    );
+
+    // Regra 3: Produção com HTTP (NUNCA enfraquece Secure)
+    assert(
+      testIsSecureCookieLogic("production", "http://linkzivo.com") === true,
+      "Produção configurada com HTTP para domínio público MANTÉM Secure=true"
+    );
+    assert(
+      testIsSecureCookieLogic("production", "http://linkzivo-production.up.railway.app") === true,
+      "Produção no Railway configurada com HTTP MANTÉM Secure=true"
+    );
+
+    // Regra 4: Produção com loopback HTTP (INCONDICIONALMENTE Secure=true, sem exceção implícita por hostname)
+    assert(
+      testIsSecureCookieLogic("production", "http://localhost:3000") === true,
+      "Produção com http://localhost:3000 MANTÉM Secure=true (sem exceção implícita por hostname)"
+    );
+    assert(
+      testIsSecureCookieLogic("production", "http://127.0.0.1:3000") === true,
+      "Produção com http://127.0.0.1:3000 MANTÉM Secure=true (sem exceção implícita por hostname)"
+    );
+
+    // Regra 5: Produção com URLs inválidas / malformadas
+    assert(
+      testIsSecureCookieLogic("production", "not-a-valid-url") === true,
+      "Produção com URL malformada/não-absoluta MANTÉM Secure=true"
+    );
+    assert(
+      testIsSecureCookieLogic("production", "http://") === true,
+      "Produção com URL incompleta 'http://' MANTÉM Secure=true"
+    );
+
+    // Regra 6: Desenvolvimento local HTTP
+    assert(
+      testIsSecureCookieLogic("development", "http://localhost:3000") === false,
+      "Desenvolvimento local HTTP em localhost emite Secure=false"
+    );
+    assert(
+      testIsSecureCookieLogic("development", "http://127.0.0.1:3000") === false,
+      "Desenvolvimento local HTTP em 127.0.0.1 emite Secure=false"
+    );
+    assert(
+      testIsSecureCookieLogic("development", undefined) === false,
+      "Desenvolvimento local sem URL pública emite Secure=false"
+    );
+    assert(
+      testIsSecureCookieLogic("development", "not-a-valid-url") === false,
+      "Desenvolvimento com URL inválida emite Secure=false"
+    );
+    assert(
+      testIsSecureCookieLogic("development", "https://local-tunnel.dev") === true,
+      "Desenvolvimento com túnel HTTPS explícito emite Secure=true"
+    );
   } catch (err) {
     console.error("ERRO DURANTE A SUÍTE DE AUTORIZAÇÃO:", err);
     failed++;

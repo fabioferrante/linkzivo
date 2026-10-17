@@ -247,19 +247,70 @@ export async function getSession(): Promise<SessionUser | null> {
 }
 
 /**
- * Define o cookie de sessão seguro e assinado criptograficamente (HttpOnly, SameSite=Lax, Secure em produção).
+ * Determina se os cookies de sessão devem ser emitidos com o atributo Secure.
+ *
+ * Diretrizes de Segurança Rigorosas:
+ * 1. Em produção (NODE_ENV === "production"): Sempre retorna true incondicionalmente,
+ *    independentemente de NEXT_PUBLIC_APP_URL. Não há exceções implícitas por hostname.
+ * 2. Validação diagnóstica de NEXT_PUBLIC_APP_URL via URL absoluta: Registra avisos em caso
+ *    de URL malformada ou configurada com protocolo HTTP em produção.
+ * 3. Em desenvolvimento local (NODE_ENV !== "production"): Retorna false para permitir testes
+ *    em HTTP local sem que o navegador descarte o cookie, a menos que uma URL HTTPS explícita seja fornecida.
+ * 4. Não consulta cabeçalhos arbitrários fornecidos pelo cliente para prevenir spoofing externo.
+ */
+export function isSecureCookie(): boolean {
+  const isProd = process.env.NODE_ENV === "production";
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  // Validação diagnóstica de NEXT_PUBLIC_APP_URL
+  if (rawAppUrl) {
+    try {
+      const parsedUrl = new URL(rawAppUrl);
+      if (isProd && parsedUrl.protocol !== "https:") {
+        console.warn(
+          `[Security Warning] Insecure protocol '${parsedUrl.protocol}' configured in NEXT_PUBLIC_APP_URL for production. Enforcing Secure=true.`
+        );
+      }
+    } catch {
+      if (isProd) {
+        console.warn(
+          "[Security Warning] NEXT_PUBLIC_APP_URL is malformed or not an absolute URL in production. Enforcing Secure=true."
+        );
+      }
+    }
+  }
+
+  // 1. Em produção, Secure é estritamente obrigatório
+  if (isProd) {
+    return true;
+  }
+
+  // 2. Em desenvolvimento / ambiente não-produção:
+  if (rawAppUrl) {
+    try {
+      const parsedUrl = new URL(rawAppUrl);
+      if (parsedUrl.protocol === "https:") {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Define o cookie de sessão seguro e assinado criptograficamente (HttpOnly, SameSite=Lax, Secure em HTTPS/produção).
  */
 export async function createSessionCookie(user: SessionUser) {
   const cookieStore = await cookies();
   const rawPayload = `${user.id}:${user.workspaceId}`;
   const signedToken = signSessionToken(rawPayload);
 
-  const isLocalhost = process.env.NEXT_PUBLIC_APP_URL?.includes("localhost") || process.env.PORT !== undefined;
-  const isSecure = process.env.NODE_ENV === "production" && !isLocalhost;
-
   cookieStore.set(SESSION_COOKIE_NAME, signedToken, {
     httpOnly: true,
-    secure: isSecure,
+    secure: isSecureCookie(),
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 30, // 30 dias
@@ -271,12 +322,10 @@ export async function createSessionCookie(user: SessionUser) {
  */
 export async function destroySessionCookie() {
   const cookieStore = await cookies();
-  const isLocalhost = process.env.NEXT_PUBLIC_APP_URL?.includes("localhost") || process.env.PORT !== undefined;
-  const isSecure = process.env.NODE_ENV === "production" && !isLocalhost;
 
   cookieStore.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
-    secure: isSecure,
+    secure: isSecureCookie(),
     sameSite: "lax",
     path: "/",
     maxAge: 0,
