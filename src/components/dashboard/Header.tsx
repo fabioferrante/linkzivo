@@ -2,20 +2,16 @@
 
 import React from "react";
 import {
-  Search,
-  Bell,
-  Plus,
   Menu,
   ChevronRight,
-  ExternalLink,
+  LogOut,
+  Bell,
 } from "lucide-react";
 
 interface HeaderProps {
   activeTabTitle: string;
-  onOpenCreateModal: () => void;
-  onOpenMobileSidebar: () => void;
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
+  onToggleMobileSidebar: () => void;
+  onLogout: () => void;
   user: {
     name: string | null;
     email: string;
@@ -25,55 +21,34 @@ interface HeaderProps {
 
 export function Header({
   activeTabTitle,
-  onOpenCreateModal,
-  onOpenMobileSidebar,
-  searchQuery,
-  onSearchChange,
+  onToggleMobileSidebar,
+  onLogout,
   user,
 }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 h-16 w-full bg-[#0B0E17]/90 backdrop-blur-md border-b border-white/[0.07] px-4 sm:px-6 flex items-center justify-between gap-4">
-      {/* Lado Esquerdo: Botão mobile + Breadcrumbs */}
+    <header className="sticky top-0 z-20 h-16 w-full bg-[#0B0E17]/95 backdrop-blur-md border-b border-white/[0.07] px-4 sm:px-6 flex items-center justify-between gap-4">
+      {/* Lado Esquerdo: Botão mobile de alternar sidebar + Breadcrumbs */}
       <div className="flex items-center gap-3 min-w-0">
         <button
-          onClick={onOpenMobileSidebar}
-          className="lg:hidden p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+          onClick={onToggleMobileSidebar}
+          className="lg:hidden p-2 rounded-md text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+          title="Alternar menu lateral"
+          aria-label="Alternar menu lateral"
         >
           <Menu className="w-5 h-5" />
         </button>
 
         <div className="flex items-center gap-2 text-xs font-medium text-slate-400 min-w-0">
-          <span className="text-slate-400 hover:text-slate-300">App</span>
+          <span className="text-slate-400">Linkzivo</span>
           <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-white font-semibold truncate">{activeTabTitle}</span>
         </div>
       </div>
 
-      {/* Centro: Barra de Busca Global Estilo Stitch */}
-      <div className="flex-1 max-w-md hidden md:block">
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-            <Search className="w-4 h-4" />
-          </div>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Buscar links, tags ou encurtar URL..."
-            className="w-full pl-9 pr-14 py-2 bg-[#121622] border border-white/[0.08] hover:border-white/[0.14] focus:border-purple-500 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all font-sans"
-          />
-          <div className="absolute inset-y-0 right-0 pr-2.5 flex items-center pointer-events-none">
-            <kbd className="px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-[#1A1F2E] border border-white/[0.08] rounded">
-              ⌘K
-            </kbd>
-          </div>
-        </div>
-      </div>
-
-      {/* Lado Direito: Status Sistemas Operacionais + Sino + Botão Novo Link */}
-      <div className="flex items-center gap-3 shrink-0">
-        {/* Status operacional estilo Stitch */}
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#121622] border border-white/[0.07] text-xs">
+      {/* Lado Direito: Status operacional + Notificações + Ação Sair da Conta (Logout Funcional) */}
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Status operacional discreto */}
+        <div className="hidden md:flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#121622] border border-white/[0.07] text-xs">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
@@ -83,21 +58,26 @@ export function Header({
 
         {/* Notificações */}
         <button
-          onClick={() => alert("Central de Notificações: Telemetria e webhooks operando com 100% de integridade.")}
-          className="relative p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+          onClick={() => alert("Central de Notificações: Todos os webhooks e redirecionamentos operando com 100% de integridade.")}
+          className="relative p-2 rounded-md text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
           title="Notificações do sistema"
+          aria-label="Notificações do sistema"
         >
           <Bell className="w-4 h-4" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-purple-500" />
         </button>
 
-        {/* Botão Novo Link Roxo Vibrante */}
+        <div className="h-4 w-px bg-white/[0.08] hidden sm:block" />
+
+        {/* Ação de Sair da Conta na Barra Superior */}
         <button
-          onClick={onOpenCreateModal}
-          className="btn-stitch-primary text-xs font-semibold px-3.5 py-2 cursor-pointer shadow-lg shadow-purple-600/30"
+          onClick={onLogout}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-slate-300 hover:text-rose-300 bg-[#121622] hover:bg-rose-500/10 border border-white/[0.08] hover:border-rose-500/30 transition-all cursor-pointer"
+          title="Encerrar sessão"
+          aria-label="Encerrar sessão"
         >
-          <Plus className="w-4 h-4" />
-          <span className="hidden sm:inline">Novo Link</span>
+          <LogOut className="w-3.5 h-3.5 shrink-0" />
+          <span className="hidden sm:inline">Sair</span>
         </button>
       </div>
     </header>

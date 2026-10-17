@@ -193,6 +193,7 @@ model SmartLink {
   history         LinkHistory[]
   clicks          Click[]
   conversions     Conversion[]
+  qrScanLocks     QrScanLock[]
 
   @@index([slug])
   @@index([workspaceId])
@@ -322,3 +323,17 @@ model AbuseReport {
   status      String    @default("PENDING") // PENDING, RESOLVED, DISMISSED
   createdAt   DateTime  @default(now())
 }
+
+model QrScanLock {
+  id          String    @id // sha256(linkId + clientFingerprint)
+  smartLinkId String
+  clickId     String
+  lockedUntil DateTime
+  createdAt   DateTime  @default(now())
+
+  smartLink   SmartLink @relation(fields: [smartLinkId], references: [id], onDelete: Cascade)
+
+  @@index([smartLinkId])
+  @@index([lockedUntil])
+}
+

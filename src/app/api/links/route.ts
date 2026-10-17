@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     // 2. Resolução do Slug (Customizado ou Gerado)
     let slug: string;
     if (customSlug && customSlug.trim()) {
-      const cleanSlug = customSlug.trim();
+      const cleanSlug = customSlug.trim().toLowerCase();
       if (!isValidCustomSlug(cleanSlug)) {
         return NextResponse.json(
           { error: "Slug personalizado inválido ou reservado pelo sistema (use apenas letras, números e hífens)." },
@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const existingSlug = await db.smartLink.findUnique({
-        where: { slug: cleanSlug },
+      const existingSlug = await db.smartLink.findFirst({
+        where: { slug: { equals: cleanSlug, mode: "insensitive" } },
         select: { id: true },
       });
 
@@ -169,8 +169,14 @@ export async function POST(request: NextRequest) {
     );
   } catch (err: unknown) {
     console.error("[Create Link Error]", err);
+    if (err && typeof err === "object" && "code" in err && (err as any).code === "P2002") {
+      return NextResponse.json(
+        { error: "Este slug já está em uso. Por favor, escolha outro." },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
-      { error: "Erro interno ao processar a criação do link." },
+      { error: "Erro interno no servidor ao processar a criação do link." },
       { status: 500 }
     );
   }

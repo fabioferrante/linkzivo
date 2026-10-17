@@ -6,6 +6,7 @@ import {
   Plus,
   Play,
   Pause,
+  Edit3,
   Trash2,
   ExternalLink,
   ChevronRight,
@@ -41,6 +42,7 @@ export interface ProductItem {
 interface ProductsViewProps {
   products: ProductItem[];
   onOpenCreate: () => void;
+  onEditProduct: (product: ProductItem) => void;
   onOpenAddOffer: (productId: string) => void;
   onOpenDetails: (productId: string) => void;
   onToggleStatus: (productId: string, currentStatus: string) => Promise<void>;
@@ -51,6 +53,7 @@ interface ProductsViewProps {
 export function ProductsView({
   products,
   onOpenCreate,
+  onEditProduct,
   onOpenAddOffer,
   onOpenDetails,
   onToggleStatus,
@@ -82,10 +85,10 @@ export function ProductsView({
 
         <button
           onClick={onOpenCreate}
-          className="btn-stitch-primary text-xs font-semibold px-4 py-2.5 cursor-pointer shadow-lg shadow-purple-600/30 self-start sm:self-auto"
+          className="btn-stitch-primary text-xs font-semibold px-4 py-2.5 cursor-pointer shadow-md shadow-purple-600/25 self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
-          <span>+ Novo Produto</span>
+          <span>Novo Produto</span>
         </button>
       </div>
 
@@ -150,10 +153,20 @@ export function ProductsView({
                     </span>
 
                     <div className="flex items-center gap-1">
+                      {/* Botão de Edição do Produto */}
+                      <button
+                        onClick={() => onEditProduct(prod)}
+                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+                        title="Editar produto"
+                        aria-label="Editar produto"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+
                       <button
                         onClick={() => onToggleStatus(prod.id, prod.status)}
                         disabled={actionLoading === prod.id}
-                        className={`p-1 rounded-lg transition-colors cursor-pointer ${
+                        className={`p-1 rounded transition-colors cursor-pointer ${
                           isInactive
                             ? "text-emerald-400 hover:bg-emerald-500/10"
                             : "text-amber-400 hover:bg-amber-500/10"
@@ -164,7 +177,7 @@ export function ProductsView({
                       </button>
                       <button
                         onClick={() => onDeleteProduct(prod.id)}
-                        className="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                        className="p-1 rounded text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
                         title="Excluir produto"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

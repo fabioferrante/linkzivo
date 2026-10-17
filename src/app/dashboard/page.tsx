@@ -108,9 +108,8 @@ function DashboardContent() {
     return "overview";
   });
 
-  // Mobile sidebar state
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [globalSearch, setGlobalSearch] = useState("");
+  // Mobile sidebar state (inicia recolhido por padrão em smartphones)
+  const [isMobileExpanded, setIsMobileExpanded] = useState(false);
 
   // Sincroniza activeTab quando o parâmetro da URL mudar
   useEffect(() => {
@@ -212,12 +211,15 @@ function DashboardContent() {
   const [historyItems, setHistoryItems] = useState<LinkHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Formulário de Criação de Produto
+  // Formulário de Criação / Edição de Produto
   const [createProductOpen, setCreateProductOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<ProductItem | null>(null);
   const [prodName, setProdName] = useState("");
-  const [prodPlatform, setProdPlatform] = useState("Hotmart");
+  const [prodPlatform, setProdPlatform] = useState("Shopee");
+  const [customPlatformName, setCustomPlatformName] = useState("");
   const [prodOfferUrl, setProdOfferUrl] = useState("");
   const [prodCommission, setProdCommission] = useState("");
+  const [prodLoading, setProdLoading] = useState(false);
 
   // Formulário de Criação / Edição de Campanha
   const [createCampaignOpen, setCreateCampaignOpen] = useState(false);
@@ -417,13 +419,19 @@ function DashboardContent() {
     }
   };
 
-  // Salvar Edição do Link (preserva slug e registra histórico)
+  // Salvar Edição do Link (preserva histórico e permite atualização segura de slug)
   const handleSaveEditSmartLink = async (formData: {
     destinationUrl: string;
+    slug?: string;
     title?: string;
     campaignId?: string;
     productId?: string;
     offerId?: string;
+    utmSource?: string;
+    utmMedium?: string;
+    utmCampaign?: string;
+    utmTerm?: string;
+    utmContent?: string;
   }) => {
     if (!editingLink) return;
     setEditLoading(true);
@@ -433,10 +441,16 @@ function DashboardContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           destinationUrl: formData.destinationUrl,
+          slug: formData.slug || undefined,
           title: formData.title,
           campaignId: formData.campaignId || null,
           productId: formData.productId || null,
           offerId: formData.offerId || null,
+          utmSource: formData.utmSource !== undefined ? formData.utmSource : null,
+          utmMedium: formData.utmMedium !== undefined ? formData.utmMedium : null,
+          utmCampaign: formData.utmCampaign !== undefined ? formData.utmCampaign : null,
+          utmTerm: formData.utmTerm !== undefined ? formData.utmTerm : null,
+          utmContent: formData.utmContent !== undefined ? formData.utmContent : null,
         }),
       });
 
@@ -653,29 +667,105 @@ function DashboardContent() {
     }
   };
 
-  // Criar Produto
-  const handleCreateProduct = async (e: React.FormEvent) => {
+  const predefinedPlatforms = [
+    "Shopee",
+    "Mercado Livre",
+    "Amazon",
+    "AliExpress",
+    "Magalu",
+    "Shein",
+    "TikTok Shop",
+    "KaBuM!",
+    "Americanas",
+    "Hotmart",
+    "Kiwify",
+    "Eduzz",
+    "Braip",
+    "Monetizze",
+    "Outra plataforma",
+  ];
+
+  const handleOpenCreateProduct = () => {
+    setEditingProduct(null);
+    setProdName("");
+    setProdPlatform("Shopee");
+    setCustomPlatformName("");
+    setProdOfferUrl("");
+    setProdCommission("");
+    setCreateProductOpen(true);
+  };
+
+  const handleOpenEditProduct = (prod: ProductItem) => {
+    setEditingProduct(prod);
+    setProdName(prod.name);
+    if (predefinedPlatforms.includes(prod.platform)) {
+      setProdPlatform(prod.platform);
+      setCustomPlatformName("");
+    } else {
+      setProdPlatform("Outra plataforma");
+      setCustomPlatformName(prod.platform);
+    }
+    setProdOfferUrl("");
+    setProdCommission("");
+    setCreateProductOpen(true);
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+    setProdLoading(true);
+
+    const finalPlatform =
+      prodPlatform === "Outra plataforma" && customPlatformName.trim()
+        ? customPlatformName.trim()
+        : prodPlatform;
+
     try {
-      const res = await fetch("/api/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: prodName,
-          platform: prodPlatform,
-          initialOfferUrl: prodOfferUrl,
-          commissionValue: prodCommission,
-        }),
-      });
-      if (res.ok) {
-        setCreateProductOpen(false);
-        setProdName("");
-        setProdOfferUrl("");
-        setProdCommission("");
-        fetchAllData(period);
+      if (editingProduct) {
+        const res = await fetch(`/api/products/${editingProduct.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: prodName,
+            platform: finalPlatform,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.error || "Erro ao atualizar produto.");
+          return;
+        }
+      } else {
+        const res = await fetch("/api/products", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: prodName,
+            platform: finalPlatform,
+            initialOfferUrl: prodOfferUrl,
+            commissionValue: prodCommission,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          alert(err.error || "Erro ao cadastrar produto.");
+          return;
+        }
       }
+
+      setCreateProductOpen(false);
+      setEditingProduct(null);
+      setProdName("");
+      setProdOfferUrl("");
+      setProdCommission("");
+      setCustomPlatformName("");
+      fetchAllData(period);
     } catch (e) {
       console.error(e);
+      alert("Falha na comunicação com o servidor.");
+    } finally {
+      setProdLoading(false);
     }
   };
 
@@ -720,31 +810,23 @@ function DashboardContent() {
 
   return (
     <div className="min-h-screen bg-[#0B0E17] text-slate-100 flex">
-      {/* Sidebar Persistente Estilo Stitch */}
+      {/* Sidebar Persistente Estilo Stitch com suporte a mobile recolhido */}
       <Sidebar
         activeTab={activeTab}
         onTabChange={(tab) => handleTabChange(tab)}
-        onOpenCreateModal={() => setCreateModalOpen(true)}
         linkCount={links.length}
         user={user}
         onLogout={handleLogout}
-        isOpenMobile={mobileSidebarOpen}
-        onCloseMobile={() => setMobileSidebarOpen(false)}
+        isMobileExpanded={isMobileExpanded}
+        onToggleMobileExpanded={() => setIsMobileExpanded((prev) => !prev)}
       />
 
-      {/* Conteúdo Principal com Header Superior */}
-      <div className="flex-1 lg:pl-64 flex flex-col min-w-0">
+      {/* Conteúdo Principal com Header Superior (pl-16 para barra recolhida mobile, lg:pl-64 para desktop) */}
+      <div className="flex-1 pl-16 lg:pl-64 flex flex-col min-w-0 transition-all duration-200">
         <Header
           activeTabTitle={activeTabTitles[activeTab] || "Painel"}
-          onOpenCreateModal={() => setCreateModalOpen(true)}
-          onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
-          searchQuery={globalSearch}
-          onSearchChange={(q) => {
-            setGlobalSearch(q);
-            if (activeTab !== "links" && q.trim()) {
-              handleTabChange("links");
-            }
-          }}
+          onToggleMobileSidebar={() => setIsMobileExpanded((prev) => !prev)}
+          onLogout={handleLogout}
           user={user}
         />
 
@@ -792,7 +874,7 @@ function DashboardContent() {
               onDeleteLink={handleDeleteLink}
               loading={loading}
               shortDomain={domain}
-              searchQuery={globalSearch}
+              onRefresh={() => fetchAllData(period)}
             />
           )}
 
@@ -811,7 +893,8 @@ function DashboardContent() {
           {activeTab === "products" && (
             <ProductsView
               products={products}
-              onOpenCreate={() => setCreateProductOpen(true)}
+              onOpenCreate={handleOpenCreateProduct}
+              onEditProduct={handleOpenEditProduct}
               onOpenAddOffer={(prodId) => setAddOfferProductId(prodId)}
               onOpenDetails={handleOpenProductDetails}
               onToggleStatus={handleToggleProductStatus}
@@ -832,14 +915,16 @@ function DashboardContent() {
       </div>
 
       {/* ======================================================== */}
-      {/* MODAL 1: CRIAR SMART LINK & QR CODE (REFERÊNCIA B DO STITCH) */}
+      {/* MODAL 1: CRIAR SMART LINK & QR CODE */}
       {/* ======================================================== */}
       {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md overflow-y-auto">
-          <div className="relative w-full max-w-5xl my-auto bg-[#0B0E17] border border-white/10 rounded-2xl shadow-2xl p-5 sm:p-7 max-h-[92vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-xs overflow-y-auto">
+          <div className="relative w-full max-w-5xl my-auto bg-[#0B0E17] border border-white/10 rounded-md shadow-2xl p-5 sm:p-7 max-h-[92vh] overflow-y-auto">
             <button
               onClick={() => setCreateModalOpen(false)}
-              className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+              className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer z-30"
+              title="Fechar janela"
+              aria-label="Fechar janela"
             >
               <X className="w-5 h-5" />
             </button>
@@ -858,14 +943,16 @@ function DashboardContent() {
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 2: EDITAR SMART LINK & QR CODE (PRESERVAÇÃO DO SLUG) */}
+      {/* MODAL 2: EDITAR SMART LINK & QR CODE */}
       {/* ======================================================== */}
       {editingLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md overflow-y-auto">
-          <div className="relative w-full max-w-5xl my-auto bg-[#0B0E17] border border-white/10 rounded-2xl shadow-2xl p-5 sm:p-7 max-h-[92vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-xs overflow-y-auto">
+          <div className="relative w-full max-w-5xl my-auto bg-[#0B0E17] border border-white/10 rounded-md shadow-2xl p-5 sm:p-7 max-h-[92vh] overflow-y-auto">
             <button
               onClick={() => setEditingLink(null)}
-              className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+              className="absolute top-4 right-4 p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer z-30"
+              title="Fechar janela"
+              aria-label="Fechar janela"
             >
               <X className="w-5 h-5" />
             </button>
@@ -1179,87 +1266,126 @@ function DashboardContent() {
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 8: NOVO PRODUTO NO LINK VAULT */}
+      {/* MODAL 8: NOVO PRODUTO / EDIÇÃO NO CATÁLOGO */}
       {/* ======================================================== */}
       {createProductOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="relative w-full max-w-md bg-[#0F131F] border border-white/10 rounded-2xl shadow-2xl p-6 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
+          <div className="relative w-full max-w-md bg-[#0F131F] border border-white/10 rounded-md shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
-              <h3 className="text-base font-bold text-white">Novo Produto no Link Vault</h3>
+              <h3 className="text-base font-bold text-white">
+                {editingProduct ? "Editar Produto" : "Novo Produto no Catálogo"}
+              </h3>
               <button
-                onClick={() => setCreateProductOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                onClick={() => {
+                  setCreateProductOpen(false);
+                  setEditingProduct(null);
+                }}
+                className="p-1 rounded text-slate-400 hover:text-white cursor-pointer"
+                title="Fechar janela"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateProduct} className="space-y-4">
+            <form onSubmit={handleSaveProduct} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Nome do Produto</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Nome do Produto <span className="text-rose-400">*</span>
+                </label>
                 <input
                   type="text"
                   required
                   value={prodName}
                   onChange={(e) => setProdName(e.target.value)}
-                  placeholder="Ex: Curso Mestre de Vendas"
-                  className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] rounded-xl text-xs text-white"
+                  placeholder="Ex: Fone Bluetooth Pro Max"
+                  className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] focus:border-purple-500 rounded-md text-xs text-white"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Plataforma</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Plataforma de Venda <span className="text-rose-400">*</span>
+                </label>
                 <select
                   value={prodPlatform}
                   onChange={(e) => setProdPlatform(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] rounded-xl text-xs text-white"
+                  className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] focus:border-purple-500 rounded-md text-xs text-white cursor-pointer"
                 >
-                  <option value="Hotmart">Hotmart</option>
-                  <option value="Kiwify">Kiwify</option>
-                  <option value="Eduzz">Eduzz</option>
-                  <option value="Monetizze">Monetizze</option>
-                  <option value="Amazon">Amazon</option>
-                  <option value="Outra">Outra</option>
+                  {predefinedPlatforms.map((plat) => (
+                    <option key={plat} value={plat}>
+                      {plat}
+                    </option>
+                  ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">URL da Oferta Inicial</label>
-                <input
-                  type="url"
-                  required
-                  value={prodOfferUrl}
-                  onChange={(e) => setProdOfferUrl(e.target.value)}
-                  placeholder="https://pay.hotmart.com/PROD123"
-                  className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] rounded-xl text-xs text-white font-mono"
-                />
-              </div>
+              {/* Campo dinâmico quando selecionado 'Outra plataforma' */}
+              {prodPlatform === "Outra plataforma" && (
+                <div className="animate-in fade-in">
+                  <label className="block text-xs font-medium text-purple-300 mb-1">
+                    Nome da Plataforma Personalizada
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customPlatformName}
+                    onChange={(e) => setCustomPlatformName(e.target.value)}
+                    placeholder="Ex: Nuvemshop, Shopify, Loja Própria..."
+                    className="w-full px-3 py-2 bg-[#090C14] border border-purple-500/40 focus:border-purple-500 rounded-md text-xs text-white"
+                  />
+                </div>
+              )}
 
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Comissão Estimada (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={prodCommission}
-                  onChange={(e) => setProdCommission(e.target.value)}
-                  placeholder="147.00"
-                  className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] rounded-xl text-xs text-white font-mono"
-                />
-              </div>
+              {/* Oferta Inicial apenas na criação de novo produto */}
+              {!editingProduct && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      URL da Oferta Inicial (Link de Afiliado) <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      value={prodOfferUrl}
+                      onChange={(e) => setProdOfferUrl(e.target.value)}
+                      placeholder="https://shopee.com.br/produto-exemplo?afiliado=123"
+                      className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] focus:border-purple-500 rounded-md text-xs text-white font-mono"
+                    />
+                  </div>
 
-              <div className="pt-2 flex justify-end gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      Comissão Estimada (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={prodCommission}
+                      onChange={(e) => setProdCommission(e.target.value)}
+                      placeholder="Ex: 45.00"
+                      className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] focus:border-purple-500 rounded-md text-xs text-white font-mono"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="pt-2 flex justify-end gap-2 border-t border-white/[0.06]">
                 <button
                   type="button"
-                  onClick={() => setCreateProductOpen(false)}
-                  className="btn-stitch-secondary text-xs"
+                  onClick={() => {
+                    setCreateProductOpen(false);
+                    setEditingProduct(null);
+                  }}
+                  className="btn-stitch-secondary text-xs px-3 py-1.5"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="btn-stitch-primary text-xs"
+                  disabled={prodLoading}
+                  className="btn-stitch-primary text-xs px-4 py-1.5 disabled:opacity-50"
                 >
-                  Cadastrar Produto
+                  {prodLoading ? "Salvando..." : editingProduct ? "Salvar Alterações" : "Cadastrar Produto"}
                 </button>
               </div>
             </form>

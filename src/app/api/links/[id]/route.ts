@@ -52,7 +52,21 @@ export async function PATCH(
     const { id } = await params;
     const session = await getSession();
     const body = await request.json();
-    const { destinationUrl, title, status, fallbackUrl, campaignId, productId, offerId } = body;
+    const {
+      destinationUrl,
+      title,
+      status,
+      fallbackUrl,
+      campaignId,
+      productId,
+      offerId,
+      slug: rawSlug,
+      utmSource,
+      utmMedium,
+      utmCampaign,
+      utmTerm,
+      utmContent,
+    } = body;
 
     const existingLink = await db.smartLink.findUnique({
       where: { id },
@@ -79,6 +93,36 @@ export async function PATCH(
       }
       updatedDestination = validation.sanitizedUrl;
       urlChanged = true;
+    }
+
+    let updatedSlug = existingLink.slug;
+    if (rawSlug && rawSlug.trim()) {
+      const cleanSlug = rawSlug.trim().toLowerCase();
+      if (cleanSlug !== existingLink.slug.toLowerCase()) {
+        const { isValidCustomSlug } = await import("@/lib/security");
+        if (!isValidCustomSlug(cleanSlug)) {
+          return NextResponse.json(
+            { error: "Slug personalizado inválido ou reservado pelo sistema (use apenas letras, números e hífens)." },
+            { status: 400 }
+          );
+        }
+
+        const conflict = await db.smartLink.findFirst({
+          where: {
+            slug: { equals: cleanSlug, mode: "insensitive" },
+            id: { not: existingLink.id },
+          },
+          select: { id: true },
+        });
+
+        if (conflict) {
+          return NextResponse.json(
+            { error: "Este slug já está em uso por outro link cadastrado." },
+            { status: 409 }
+          );
+        }
+        updatedSlug = cleanSlug;
+      }
     }
 
     if (status && !["ACTIVE", "PAUSED", "EXPIRED", "SUSPENDED"].includes(status)) {
@@ -132,6 +176,7 @@ export async function PATCH(
       return tx.smartLink.update({
         where: { id },
         data: {
+          slug: updatedSlug,
           destinationUrl: updatedDestination,
           title: title !== undefined ? title : existingLink.title,
           status: status || existingLink.status,
@@ -139,6 +184,11 @@ export async function PATCH(
           campaignId: campaignId !== undefined ? (campaignId || null) : existingLink.campaignId,
           productId: productId !== undefined ? (productId || null) : existingLink.productId,
           offerId: offerId !== undefined ? (offerId || null) : existingLink.offerId,
+          utmSource: utmSource !== undefined ? (utmSource || null) : existingLink.utmSource,
+          utmMedium: utmMedium !== undefined ? (utmMedium || null) : existingLink.utmMedium,
+          utmCampaign: utmCampaign !== undefined ? (utmCampaign || null) : existingLink.utmCampaign,
+          utmTerm: utmTerm !== undefined ? (utmTerm || null) : existingLink.utmTerm,
+          utmContent: utmContent !== undefined ? (utmContent || null) : existingLink.utmContent,
         },
         include: {
           qrCode: true,

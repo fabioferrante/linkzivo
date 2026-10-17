@@ -58,6 +58,9 @@ export default function Home() {
             setUser(data.user);
           } else {
             setUser(null);
+            if (typeof window !== "undefined" && window.location.search.includes("login")) {
+              setAuthModalOpen(true);
+            }
           }
         }
       } catch {

@@ -7,18 +7,18 @@ import {
   Copy,
   Check,
   Zap,
-  ShieldCheck,
   Wand2,
-  Lock,
   ChevronDown,
   ChevronUp,
   Download,
-  Camera,
   Layers,
   ShoppingBag,
   Sparkles,
   AlertCircle,
   RefreshCw,
+  CheckCircle2,
+  XCircle,
+  ShieldCheck,
 } from "lucide-react";
 
 interface CampaignItem {
@@ -86,39 +86,100 @@ export function LinkEditorView({
   loading,
   shortDomain,
 }: LinkEditorViewProps) {
-  // Campos do formulário
+  // 1. Destino e Identificação
   const [destinationUrl, setDestinationUrl] = useState(initialData?.destinationUrl || "");
   const [title, setTitle] = useState(initialData?.title || "");
+
+  // 2. Slug Personalizado com Validação Real no Servidor
   const [slug, setSlug] = useState(initialData?.slug || "");
+  const [slugChecking, setSlugChecking] = useState(false);
+  const [slugStatus, setSlugStatus] = useState<{
+    status: "idle" | "available" | "unavailable" | "error";
+    message?: string;
+  }>({ status: "idle" });
+
+  // 3. Campanhas e Produtos
   const [campaignId, setCampaignId] = useState(initialData?.campaignId || "");
   const [productId, setProductId] = useState(initialData?.productId || "");
   const [offerId, setOfferId] = useState(initialData?.offerId || "");
 
-  // UTMs
-  const [autoUtm, setAutoUtm] = useState(true);
-  const [utmSource, setUtmSource] = useState(initialData?.utmSource || "google");
-  const [utmMedium, setUtmMedium] = useState(initialData?.utmMedium || "cpc");
-  const [utmCampaign, setUtmCampaign] = useState(initialData?.utmCampaign || "inverno_2026");
+  // 4. UTMs
+  const [autoUtm, setAutoUtm] = useState(
+    Boolean(
+      initialData?.utmSource ||
+      initialData?.utmMedium ||
+      initialData?.utmCampaign ||
+      initialData?.utmTerm ||
+      initialData?.utmContent
+    )
+  );
+  const [utmSource, setUtmSource] = useState(initialData?.utmSource || "");
+  const [utmMedium, setUtmMedium] = useState(initialData?.utmMedium || "");
+  const [utmCampaign, setUtmCampaign] = useState(initialData?.utmCampaign || "");
   const [utmTerm, setUtmTerm] = useState(initialData?.utmTerm || "");
   const [utmContent, setUtmContent] = useState(initialData?.utmContent || "");
+  const [utmSectionOpen, setUtmSectionOpen] = useState(
+    Boolean(
+      initialData?.utmSource ||
+      initialData?.utmCampaign ||
+      initialData?.utmTerm ||
+      initialData?.utmContent ||
+      initialData?.campaignId ||
+      initialData?.productId
+    )
+  );
 
-  // Seções retráteis
-  const [utmSectionOpen, setUtmSectionOpen] = useState(true);
-  const [securitySectionOpen, setSecuritySectionOpen] = useState(false);
-  const [affiliateSectionOpen, setAffiliateSectionOpen] = useState(true);
-
-  // Customização de QR Code no Live Preview
-  const [qrCornerStyle, setQrCornerStyle] = useState<"rounded" | "square" | "circle">("rounded");
+  // 5. QR Code e Live Preview
   const [qrColorScheme, setQrColorScheme] = useState<"purple" | "mint" | "mono">("purple");
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copiedLink, setCopiedLink] = useState(false);
-  const [copiedQr, setCopiedQr] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const domain = shortDomain || (typeof window !== "undefined" ? window.location.host : "linkz.io");
-  const activeSlug = slug.trim() || (isEdit ? initialData?.slug || "meu-link" : "oferta-inverno-26");
+  const domain = shortDomain || (typeof window !== "undefined" ? window.location.host : "linkzivo.com");
+  const activeSlug = slug.trim() || (isEdit ? initialData?.slug || "link" : "seu-slug");
   const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
   const fullShortUrl = `${protocol}//${domain}/${activeSlug}`;
+
+  // Validação assíncrona do slug no servidor com debounce
+  useEffect(() => {
+    const trimmed = slug.trim().toLowerCase();
+    if (!trimmed) {
+      setSlugStatus({ status: "idle" });
+      return;
+    }
+
+    // Se estiver editando e for o mesmo slug original, é válido
+    if (isEdit && initialData?.slug && trimmed === initialData.slug.toLowerCase()) {
+      setSlugStatus({ status: "available", message: "Slug atual deste link" });
+      return;
+    }
+
+    if (trimmed.length < 3) {
+      setSlugStatus({ status: "unavailable", message: "Mínimo de 3 caracteres" });
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setSlugChecking(true);
+      try {
+        const excludeParam = initialData?.id ? `&excludeId=${initialData.id}` : "";
+        const res = await fetch(`/api/links/check-slug?slug=${encodeURIComponent(trimmed)}${excludeParam}`);
+        const data = await res.json();
+
+        if (data.available) {
+          setSlugStatus({ status: "available", message: data.message || "Disponível" });
+        } else {
+          setSlugStatus({ status: "unavailable", message: data.message || "Já em uso" });
+        }
+      } catch {
+        setSlugStatus({ status: "error", message: "Erro ao consultar servidor" });
+      } finally {
+        setSlugChecking(false);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [slug, isEdit, initialData?.id, initialData?.slug]);
 
   // Gera o QR Code no Live Preview
   useEffect(() => {
@@ -134,7 +195,7 @@ export function LinkEditorView({
     }
 
     QRCode.toDataURL(fullShortUrl, {
-      width: 480,
+      width: 420,
       margin: 2,
       color: {
         dark: fg,
@@ -244,19 +305,24 @@ export function LinkEditorView({
       return;
     }
 
+    if (slugStatus.status === "unavailable") {
+      setErrorMsg("O slug informado não está disponível. Por favor, escolha outro.");
+      return;
+    }
+
     try {
       await onSave({
         destinationUrl: destinationUrl.trim(),
-        slug: slug.trim() || undefined,
+        slug: slug.trim() ? slug.trim().toLowerCase() : undefined,
         title: title.trim() || undefined,
         campaignId: campaignId || undefined,
         productId: productId || undefined,
         offerId: offerId || undefined,
-        utmSource: autoUtm ? utmSource.trim() : undefined,
-        utmMedium: autoUtm ? utmMedium.trim() : undefined,
-        utmCampaign: autoUtm ? utmCampaign.trim() : undefined,
-        utmTerm: autoUtm ? utmTerm.trim() : undefined,
-        utmContent: autoUtm ? utmContent.trim() : undefined,
+        utmSource: autoUtm ? (utmSource.trim() || undefined) : (isEdit ? "" : undefined),
+        utmMedium: autoUtm ? (utmMedium.trim() || undefined) : (isEdit ? "" : undefined),
+        utmCampaign: autoUtm ? (utmCampaign.trim() || undefined) : (isEdit ? "" : undefined),
+        utmTerm: autoUtm ? (utmTerm.trim() || undefined) : (isEdit ? "" : undefined),
+        utmContent: autoUtm ? (utmContent.trim() || undefined) : (isEdit ? "" : undefined),
       });
     } catch (err: any) {
       setErrorMsg(err.message || "Erro ao salvar Smart Link.");
@@ -264,666 +330,496 @@ export function LinkEditorView({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Subheader & Título */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-mono tracking-wider uppercase text-purple-400 font-semibold mb-1">
-            Engine de Roteamento / {isEdit ? "Edição de Registro" : "Novo Registro"}
-          </div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              {isEdit ? "Editar Smart Link & QR Code" : "Criar Link & Editor de QR Code"}
-            </h1>
-            <span className="badge-stitch-mint flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Sync em Tempo Real
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 text-xs">
-          <div className="hidden md:flex items-center gap-1.5 text-slate-400 font-mono text-[11px] px-3 py-1.5 rounded-lg bg-[#121622] border border-white/[0.07]">
-            <Zap className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Latência de Redirecionamento: &lt;14ms</span>
-          </div>
-          {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="btn-stitch-secondary text-xs cursor-pointer"
-            >
-              Cancelar
-            </button>
-          )}
-        </div>
+    <div className="flex flex-col h-full">
+      {/* Cabeçalho do Editor */}
+      <div className="pb-4 mb-4 border-b border-white/[0.08]">
+        <h2 className="text-lg font-bold text-white tracking-tight">
+          {isEdit ? "Editar Smart Link" : "Criar Novo Smart Link"}
+        </h2>
+        <p className="text-xs text-slate-400 mt-0.5">
+          Configure a URL de destino, personalize a rota e gere seu código QR.
+        </p>
       </div>
 
       {errorMsg && (
-        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-          <span>{errorMsg}</span>
+        <div className="mb-4 p-3 rounded-md bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{errorMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMsg(null)}
+            className="text-slate-400 hover:text-white"
+          >
+            ×
+          </button>
         </div>
       )}
 
-      {/* Grid Principal: 2 Colunas (Formulário à Esquerda, Live Preview à Direita) */}
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Coluna Esquerda: Blocos Numerados do Formulário (7 Cols) */}
-        <div className="lg:col-span-7 space-y-5">
-          {/* Bloco 1: URL de Destino Obrigatória */}
-          <div className="stitch-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-6 h-6 rounded-md bg-purple-600 text-white flex items-center justify-center text-xs font-bold font-mono">
-                  1
-                </span>
-                <span className="text-sm font-semibold text-white">URL de Destino Obrigatória</span>
-              </div>
-              <span className="badge-stitch-mint flex items-center gap-1 text-[11px]">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                Protocolo Seguro
+      {/* Formulário com Layout Responsivo de 2 Colunas */}
+      <form onSubmit={handleSubmit} className="flex-1 flex flex-col justify-between">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20 sm:pb-24">
+          {/* Coluna Esquerda: Campos Principais (7 Colunas) */}
+          <div className="lg:col-span-7 space-y-4">
+            {/* Bloco 1: Destino e Título */}
+            <div className="stitch-card p-4 space-y-3">
+              <span className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                1. Destino &amp; Identificação
               </span>
-            </div>
 
-            <div className="relative flex items-center mb-2">
-              <input
-                type="url"
-                required
-                value={destinationUrl}
-                onChange={(e) => setDestinationUrl(e.target.value)}
-                placeholder="https://minhaloja.com.br/promocao-inverno"
-                className="w-full pl-3 pr-24 py-2.5 bg-[#0A0D15] border border-white/[0.08] focus:border-purple-500 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
-              />
-              <button
-                type="button"
-                onClick={handleTestDestination}
-                className="absolute right-1.5 px-3 py-1.5 rounded-lg bg-[#161B29] hover:bg-[#1E2538] text-slate-300 hover:text-white border border-white/[0.08] text-[11px] font-medium transition-colors flex items-center gap-1 cursor-pointer"
-              >
-                <ExternalLink className="w-3 h-3 text-purple-400" />
-                <span>Testar</span>
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
-              <Check className="w-3.5 h-3.5 shrink-0" />
-              <span>Destino com certificado TLS/SSL ativo verificado automaticamente pela CDN LINKZIVO.</span>
-            </div>
-          </div>
-
-          {/* Bloco 2: Identificação & URL Curta */}
-          <div className="stitch-card p-5 space-y-4">
-            <div className="flex items-center gap-2.5">
-              <span className="w-6 h-6 rounded-md bg-purple-600 text-white flex items-center justify-center text-xs font-bold font-mono">
-                2
-              </span>
-              <span className="text-sm font-semibold text-white">Identificação &amp; URL Curta</span>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Identificação Interna do Link
-              </label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Campanha Promoção Inverno • Conversão Google Ads"
-                className="w-full px-3 py-2 bg-[#0A0D15] border border-white/[0.08] focus:border-purple-500 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
-              />
-              <p className="text-[11px] text-slate-400 mt-1">
-                Visível apenas no seu painel para relatórios internos.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Estrutura da URL Curta &amp; Alias Personalizado
-              </label>
-              <div className="flex items-center gap-2">
-                <div className="px-3 py-2 rounded-xl bg-[#0A0D15] border border-white/[0.08] text-xs font-mono text-slate-300 shrink-0">
-                  {domain}/
-                </div>
-                <div className="relative flex-1">
+              {/* URL de Destino */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  URL de Destino <span className="text-rose-400">*</span>
+                </label>
+                <div className="relative flex items-center">
                   <input
-                    type="text"
-                    disabled={isEdit}
-                    value={slug}
-                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ""))}
-                    placeholder="oferta-inverno-26"
-                    className="w-full pl-3 pr-24 py-2 bg-[#0A0D15] border border-white/[0.08] focus:border-purple-500 rounded-xl text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono disabled:opacity-60"
+                    type="url"
+                    required
+                    value={destinationUrl}
+                    onChange={(e) => setDestinationUrl(e.target.value)}
+                    placeholder="https://sua-pagina.com/produto"
+                    className="w-full pl-3 pr-20 py-2 bg-[#090C14] border border-white/[0.08] focus:border-purple-500 rounded-md text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
                   />
-                  <div className="absolute right-2 inset-y-0 flex items-center pointer-events-none">
-                    <span className="badge-stitch-mint text-[10px] py-0.5">
-                      Disponível
-                    </span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTestDestination}
+                    className="absolute right-1 px-2.5 py-1 rounded bg-[#161B29] hover:bg-[#1E2538] text-slate-300 hover:text-white border border-white/[0.08] text-[11px] font-medium transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Testar URL de destino em nova aba"
+                  >
+                    <ExternalLink className="w-3 h-3 text-purple-400" />
+                    <span>Testar</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1.5">
-                <span>Caracteres permitidos: letras, números e hífens.</span>
+              {/* Título do Link */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Título de Identificação (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Ex: Campanha Black Friday - Bio Instagram"
+                  className="w-full px-3 py-2 bg-[#090C14] border border-white/[0.08] focus:border-purple-500 rounded-md text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+                />
+              </div>
+            </div>
+
+            {/* Bloco 2: Personalização da Slug */}
+            <div className="stitch-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                  2. Personalização do Slug
+                </span>
                 {!isEdit && (
                   <button
                     type="button"
                     onClick={handleGenerateRandomSlug}
-                    className="text-purple-400 hover:text-purple-300 flex items-center gap-1 font-medium transition-colors cursor-pointer"
+                    className="text-purple-400 hover:text-purple-300 flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer"
                   >
                     <Wand2 className="w-3 h-3" />
-                    <span>Gerar slug aleatório</span>
+                    <span>Gerar aleatório</span>
                   </button>
                 )}
               </div>
-            </div>
-          </div>
 
-          {/* Bloco 3: Rastreamento & Parâmetros UTM (Sanfona) */}
-          <div className="stitch-card p-5">
-            <button
-              type="button"
-              onClick={() => setUtmSectionOpen(!utmSectionOpen)}
-              className="w-full flex items-center justify-between cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-                  <Sparkles className="w-4 h-4" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="px-3 py-2 rounded-md bg-[#090C14] border border-white/[0.08] text-xs font-mono text-slate-400 shrink-0 select-none">
+                    {domain}/
+                  </div>
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      value={slug}
+                      onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, ""))}
+                      placeholder="meu-slug-personalizado"
+                      className="w-full pl-3 pr-24 py-2 bg-[#090C14] border border-white/[0.08] focus:border-purple-500 rounded-md text-xs text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
+                    />
+                    <div className="absolute right-2 inset-y-0 flex items-center pointer-events-none">
+                      {slugChecking ? (
+                        <RefreshCw className="w-3.5 h-3.5 text-slate-400 animate-spin" />
+                      ) : slugStatus.status === "available" ? (
+                        <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-mono">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Disponível</span>
+                        </span>
+                      ) : slugStatus.status === "unavailable" ? (
+                        <span className="flex items-center gap-1 text-rose-400 text-[10px] font-mono">
+                          <XCircle className="w-3.5 h-3.5" />
+                          <span>Indisponível</span>
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
-                <div className="text-left">
-                  <div className="text-xs font-semibold text-white">
-                    Rastreamento &amp; Parâmetros UTM
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Atribuição de campanhas no Google Analytics 4, Meta Ads e CRM
-                  </div>
+
+                <div className="text-[11px] text-slate-400 mt-1.5 flex items-center justify-between">
+                  <span>Permitidos: letras minúsculas, números, hífens e underscores.</span>
+                  {slugStatus.message && (
+                    <span className={slugStatus.status === "available" ? "text-emerald-400" : "text-rose-400"}>
+                      {slugStatus.message}
+                    </span>
+                  )}
                 </div>
               </div>
+            </div>
 
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded bg-white/[0.06] text-slate-300 font-mono text-[10px]">
-                  5 parâmetros
-                </span>
+            {/* Bloco 3: Configurações Adicionais (Campanhas, Produtos e UTMs) */}
+            <div className="stitch-card p-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => setUtmSectionOpen(!utmSectionOpen)}
+                className="w-full flex items-center justify-between cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                    3. Campanhas &amp; Parâmetros UTM
+                  </span>
+                </div>
                 {utmSectionOpen ? (
                   <ChevronUp className="w-4 h-4 text-slate-400" />
                 ) : (
                   <ChevronDown className="w-4 h-4 text-slate-400" />
                 )}
-              </div>
-            </button>
+              </button>
 
-            {utmSectionOpen && (
-              <div className="mt-4 pt-4 border-t border-white/[0.06] space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-slate-300">
-                    Anexar parâmetros UTM automaticamente
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setAutoUtm(!autoUtm)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      autoUtm ? "bg-purple-600" : "bg-slate-700"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-lg transition duration-200 ease-in-out ${
-                        autoUtm ? "translate-x-4" : "translate-x-0"
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {autoUtm && (
-                  <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] text-slate-400 mb-1 font-mono">
-                          UTM Source (Origem)
-                        </label>
-                        <input
-                          type="text"
-                          value={utmSource}
-                          onChange={(e) => setUtmSource(e.target.value)}
-                          placeholder="google"
-                          className="w-full px-3 py-1.5 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] text-slate-400 mb-1 font-mono">
-                          UTM Medium (Mídia)
-                        </label>
-                        <input
-                          type="text"
-                          value={utmMedium}
-                          onChange={(e) => setUtmMedium(e.target.value)}
-                          placeholder="cpc"
-                          className="w-full px-3 py-1.5 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] text-slate-400 mb-1 font-mono">
-                          UTM Campaign (Campanha)
-                        </label>
-                        <input
-                          type="text"
-                          value={utmCampaign}
-                          onChange={(e) => setUtmCampaign(e.target.value)}
-                          placeholder="inverno_2026"
-                          className="w-full px-3 py-1.5 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] text-slate-400 mb-1 font-mono">
-                          UTM Term (Palavra-chave)
-                        </label>
-                        <input
-                          type="text"
-                          value={utmTerm}
-                          onChange={(e) => setUtmTerm(e.target.value)}
-                          placeholder="jaqueta-couro"
-                          className="w-full px-3 py-1.5 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white font-mono"
-                        />
-                      </div>
+              {utmSectionOpen && (
+                <div className="pt-3 border-t border-white/[0.06] space-y-4">
+                  {/* Campanha e Produto */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                        Campanha Associada
+                      </label>
+                      <select
+                        value={campaignId}
+                        onChange={(e) => setCampaignId(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#090C14] border border-white/[0.08] text-xs text-white focus:outline-none cursor-pointer"
+                      >
+                        <option value="">Nenhuma campanha</option>
+                        {campaigns.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <div>
-                      <label className="block text-[11px] text-slate-400 mb-1 font-mono">
-                        UTM Content (Conteúdo do Anúncio)
+                      <label className="block text-xs font-medium text-slate-300 mb-1">
+                        Produto / Oferta
                       </label>
-                      <input
-                        type="text"
-                        value={utmContent}
-                        onChange={(e) => setUtmContent(e.target.value)}
-                        placeholder="banner_principal_v2"
-                        className="w-full px-3 py-1.5 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white font-mono"
-                      />
+                      <select
+                        value={productId}
+                        onChange={(e) => handleProductChange(e.target.value)}
+                        className="w-full px-3 py-2 rounded-md bg-[#090C14] border border-white/[0.08] text-xs text-white focus:outline-none cursor-pointer"
+                      >
+                        <option value="">Nenhum produto</option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.platform})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Chave de Ativação Switch de Parâmetros UTM */}
+                  <div className="pt-2 border-t border-white/[0.06]">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <span className="text-xs font-medium text-slate-300 block">
+                          Anexar parâmetros de rastreamento UTM
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          Injeta tags de atribuição para plataformas de checkout e Google Analytics
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={autoUtm}
+                        aria-label="Ativar parâmetros de rastreamento UTM"
+                        onClick={() => setAutoUtm(!autoUtm)}
+                        onKeyDown={(e) => {
+                          if (e.key === " " || e.key === "Enter") {
+                            e.preventDefault();
+                            setAutoUtm(!autoUtm);
+                          }
+                        }}
+                        className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border border-white/10 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-1 focus:ring-offset-[#0B0E17] ${
+                          autoUtm ? "bg-purple-600" : "bg-slate-800"
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out my-auto ${
+                            autoUtm ? "translate-x-5" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
                     </div>
 
-                    {/* Preview da query string */}
-                    <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 font-mono text-[11px] text-emerald-400 break-all">
-                      ?utm_source={utmSource || "..."}&amp;utm_medium={utmMedium || "..."}&amp;utm_campaign={utmCampaign || "..."}
-                      {utmTerm && `&utm_term=${utmTerm}`}
-                      {utmContent && `&utm_content=${utmContent}`}
-                      &amp;sck=&#123;&#123;click_id&#125;&#125;
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+                    {autoUtm && (
+                      <div className="space-y-3 pt-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">
+                              utm_source (Origem)
+                            </label>
+                            <input
+                              type="text"
+                              value={utmSource}
+                              onChange={(e) => setUtmSource(e.target.value)}
+                              placeholder="google"
+                              className="w-full px-2.5 py-1.5 bg-[#090C14] border border-white/[0.08] rounded-md text-xs text-white font-mono focus:border-purple-500 outline-none"
+                            />
+                          </div>
 
-          {/* Bloco 4: Integração de Campanhas & Produtos/Ofertas de Afiliados */}
-          <div className="stitch-card p-5">
-            <button
-              type="button"
-              onClick={() => setAffiliateSectionOpen(!affiliateSectionOpen)}
-              className="w-full flex items-center justify-between cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                  <ShoppingBag className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-semibold text-white">
-                    Vínculo de Campanha &amp; Catálogo de Afiliados
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Atribuição automática a campanhas ativas e ofertas cadastradas
-                  </div>
-                </div>
-              </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">
+                              utm_medium (Mídia)
+                            </label>
+                            <input
+                              type="text"
+                              value={utmMedium}
+                              onChange={(e) => setUtmMedium(e.target.value)}
+                              placeholder="cpc"
+                              className="w-full px-2.5 py-1.5 bg-[#090C14] border border-white/[0.08] rounded-md text-xs text-white font-mono focus:border-purple-500 outline-none"
+                            />
+                          </div>
 
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded bg-white/[0.06] text-slate-300 font-mono text-[10px]">
-                  Opcional
-                </span>
-                {affiliateSectionOpen ? (
-                  <ChevronUp className="w-4 h-4 text-slate-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
-                )}
-              </div>
-            </button>
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">
+                              utm_campaign (Campanha)
+                            </label>
+                            <input
+                              type="text"
+                              value={utmCampaign}
+                              onChange={(e) => setUtmCampaign(e.target.value)}
+                              placeholder="inverno_2026"
+                              className="w-full px-2.5 py-1.5 bg-[#090C14] border border-white/[0.08] rounded-md text-xs text-white font-mono focus:border-purple-500 outline-none"
+                            />
+                          </div>
+                        </div>
 
-            {affiliateSectionOpen && (
-              <div className="mt-4 pt-4 border-t border-white/[0.06] space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      Campanha de Marketing
-                    </label>
-                    <select
-                      value={campaignId}
-                      onChange={(e) => setCampaignId(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white"
-                    >
-                      <option value="">Sem campanha (Avulso)</option>
-                      {campaigns.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">
+                              utm_term (Palavra-chave)
+                            </label>
+                            <input
+                              type="text"
+                              value={utmTerm}
+                              onChange={(e) => setUtmTerm(e.target.value)}
+                              placeholder="jaqueta-couro"
+                              className="w-full px-2.5 py-1.5 bg-[#090C14] border border-white/[0.08] rounded-md text-xs text-white font-mono focus:border-purple-500 outline-none"
+                            />
+                          </div>
 
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      Produto no Catálogo
-                    </label>
-                    <select
-                      value={productId}
-                      onChange={(e) => handleProductChange(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white"
-                    >
-                      <option value="">Sem produto associado</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.platform})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-mono text-slate-400 mb-1">
+                              utm_content (Conteúdo do Anúncio)
+                            </label>
+                            <input
+                              type="text"
+                              value={utmContent}
+                              onChange={(e) => setUtmContent(e.target.value)}
+                              placeholder="banner_principal_v2"
+                              className="w-full px-2.5 py-1.5 bg-[#090C14] border border-white/[0.08] rounded-md text-xs text-white font-mono focus:border-purple-500 outline-none"
+                            />
+                          </div>
+                        </div>
 
-                {availableOffers.length > 0 && (
-                  <div>
-                    <label className="block text-[11px] text-slate-400 mb-1">
-                      Oferta Específica do Produto
-                    </label>
-                    <select
-                      value={offerId}
-                      onChange={(e) => handleOfferChange(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#0A0D15] border border-white/[0.08] rounded-lg text-xs text-white"
-                    >
-                      <option value="">Selecione uma oferta</option>
-                      {availableOffers.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Bloco 5: Segurança & Redirecionamento Avançado */}
-          <div className="stitch-card p-5">
-            <button
-              type="button"
-              onClick={() => setSecuritySectionOpen(!securitySectionOpen)}
-              className="w-full flex items-center justify-between cursor-pointer"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <div className="text-xs font-semibold text-white">
-                    Segurança &amp; Redirecionamento Avançado
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Proteção por senha, validade de cliques, geotargeting e pixels
+                        {/* Preview da query string */}
+                        <div className="p-2.5 rounded-md bg-[#090C14] border border-white/[0.06] font-mono text-[11px] text-purple-300 break-all flex items-start gap-2">
+                          <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0 mt-0.5" />
+                          <div className="leading-relaxed">
+                            <span className="text-slate-400 font-sans">Query string gerada: </span>
+                            <span className="text-slate-300">
+                              ?utm_source={encodeURIComponent(utmSource.trim() || "...")}
+                              &amp;utm_medium={encodeURIComponent(utmMedium.trim() || "...")}
+                              {utmCampaign.trim() && `&utm_campaign=${encodeURIComponent(utmCampaign.trim())}`}
+                              {utmTerm.trim() && `&utm_term=${encodeURIComponent(utmTerm.trim())}`}
+                              {utmContent.trim() && `&utm_content=${encodeURIComponent(utmContent.trim())}`}
+                              &amp;sck=&#123;&#123;click_id&#125;&#125;
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-slate-400 font-medium">Configurável</span>
-                {securitySectionOpen ? (
-                  <ChevronUp className="w-4 h-4 text-slate-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
-                )}
-              </div>
-            </button>
-
-            {securitySectionOpen && (
-              <div className="mt-4 pt-4 border-t border-white/[0.06] text-xs text-slate-400 space-y-2">
-                <p>
-                  As regras de mitigação de SSRF e bloqueio incondicional de redes privadas já estão ativas por padrão.
-                </p>
-                <div className="p-3 rounded-lg bg-[#0A0D15] border border-white/[0.06] flex items-center justify-between">
-                  <span className="text-slate-300">Proteção contra bots e deduplicação de cliques por câmera:</span>
-                  <span className="badge-stitch-mint">Ativo</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Barra de Publicação Inferior */}
-          <div className="p-4 rounded-xl bg-[#121622] border border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
-                <Zap className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-white">Pronto para Publicação</span>
-                  <span className="px-1.5 py-0.5 rounded bg-white/[0.08] text-[9px] font-mono text-slate-300">
-                    Edge CDN Ready
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-400 font-mono truncate max-w-xs sm:max-w-sm">
-                  URL Ativa: <span className="text-purple-300">{fullShortUrl}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5 w-full sm:w-auto">
-              {onCancel && (
-                <button
-                  type="button"
-                  onClick={onCancel}
-                  className="flex-1 sm:flex-none btn-stitch-secondary text-xs cursor-pointer"
-                >
-                  Salvar como Rascunho
-                </button>
               )}
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 sm:flex-none btn-stitch-primary text-xs font-semibold px-5 py-2.5 cursor-pointer disabled:opacity-60"
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Processando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>{isEdit ? "Salvar Alterações" : "Criar Link & Salvar QR Code"}</span>
-                  </>
-                )}
-              </button>
+            </div>
+
+            {/* Informe Discreto de Segurança */}
+            <div className="p-3 rounded-md bg-[#090C14] border border-white/[0.06] flex items-center gap-2.5 text-xs text-slate-400">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="leading-relaxed">
+                <span className="text-white font-medium">Segurança da Rota: </span>
+                <span>Mitigação de SSRF em redes privadas, filtragem de requisições de bots e deduplicação de acessos via QR Code.</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Coluna Direita: LIVE PREVIEW (5 Cols) */}
-        <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-20">
-          <div className="stitch-card p-5 space-y-5">
-            {/* Header do Live Preview */}
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white uppercase tracking-wider font-mono">
-                Live Preview
-              </span>
-              <span className="badge-stitch-mint flex items-center gap-1 text-[10px]">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Render Vetorial Ativo
-              </span>
-            </div>
-
-            {/* Display da URL curta com botão copiar */}
-            <div className="p-3 rounded-xl bg-[#0A0D15] border border-white/[0.08] flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-mono text-purple-300 truncate">
-                <Zap className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                <span className="truncate">{fullShortUrl}</span>
+          {/* Coluna Direita: Live Preview & Estilos QR Code (5 Colunas) */}
+          <div className="lg:col-span-5 space-y-4">
+            <div className="stitch-card p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-white uppercase tracking-wider font-mono">
+                  Pré-visualização do QR Code
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-mono border border-emerald-500/20">
+                  Alta Resolução
+                </span>
               </div>
-              <button
-                type="button"
-                onClick={handleCopyShortUrl}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer shrink-0"
-                title="Copiar URL Curta"
-              >
-                {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              </button>
-            </div>
 
-            {/* Box Central do QR Code */}
-            <div className="p-6 rounded-2xl bg-[#090C14] border border-white/[0.06] flex flex-col items-center justify-center">
-              <div className="relative p-3 rounded-xl bg-[#0B0E17] border border-white/[0.08] shadow-2xl">
+              {/* QR Code Renderizado */}
+              <div className="flex flex-col items-center justify-center p-4 bg-[#090C14] rounded-md border border-white/[0.06]">
                 {qrDataUrl ? (
                   <img
                     src={qrDataUrl}
                     alt="Preview QR Code"
-                    className="w-56 h-56 rounded-lg object-contain"
+                    className="w-44 h-44 object-contain rounded"
                   />
                 ) : (
-                  <div className="w-56 h-56 flex items-center justify-center text-slate-500">
-                    <RefreshCw className="w-6 h-6 animate-spin text-purple-400" />
+                  <div className="w-44 h-44 flex items-center justify-center text-xs text-slate-500 font-mono">
+                    Gerando QR...
                   </div>
                 )}
-              </div>
-              <div className="text-[10px] text-slate-400 font-mono mt-3">
-                Tamanho 1024 x 1024px • ECC Nível H (30%)
-              </div>
-            </div>
 
-            {/* Estilo dos Cantos (Olhos) */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-2">
-                Estilo dos Cantos (Olhos)
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setQrCornerStyle("rounded")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all cursor-pointer text-center ${
-                    qrCornerStyle === "rounded"
-                      ? "bg-purple-600/20 border-purple-500/50 text-purple-300"
-                      : "bg-[#0A0D15] border-white/[0.06] text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Arredondado
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQrCornerStyle("square")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all cursor-pointer text-center ${
-                    qrCornerStyle === "square"
-                      ? "bg-purple-600/20 border-purple-500/50 text-purple-300"
-                      : "bg-[#0A0D15] border-white/[0.06] text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Quadrado
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQrCornerStyle("circle")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all cursor-pointer text-center ${
-                    qrCornerStyle === "circle"
-                      ? "bg-purple-600/20 border-purple-500/50 text-purple-300"
-                      : "bg-[#0A0D15] border-white/[0.06] text-slate-400 hover:text-white"
-                  }`}
-                >
-                  Circular
-                </button>
-              </div>
-            </div>
-
-            {/* Esquema de Cores & Gradiente */}
-            <div>
-              <label className="block text-[11px] font-medium text-slate-400 mb-2">
-                Esquema de Cores &amp; Gradiente
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setQrColorScheme("purple")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    qrColorScheme === "purple"
-                      ? "bg-purple-600/20 border-purple-500/50 text-purple-300"
-                      : "bg-[#0A0D15] border-white/[0.06] text-slate-400 hover:text-white"
-                  }`}
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-purple-500 shrink-0" />
-                  <span>Vórtice Roxo</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setQrColorScheme("mint")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    qrColorScheme === "mint"
-                      ? "bg-emerald-600/20 border-emerald-500/50 text-emerald-300"
-                      : "bg-[#0A0D15] border-white/[0.06] text-slate-400 hover:text-white"
-                  }`}
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
-                  <span>Tech Mint</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setQrColorScheme("mono")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-medium border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    qrColorScheme === "mono"
-                      ? "bg-white/10 border-white/30 text-white"
-                      : "bg-[#0A0D15] border-white/[0.06] text-slate-400 hover:text-white"
-                  }`}
-                >
-                  <span className="w-2.5 h-2.5 rounded-full bg-white shrink-0" />
-                  <span>Monocromo</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Botões de Ação Direta para Download e Cópia */}
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.06]">
-              <button
-                type="button"
-                onClick={handleDownloadQrPng}
-                className="btn-stitch-secondary text-[11px] py-2 flex items-center justify-center gap-1 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5 text-purple-400" />
-                <span>Baixar PNG</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDownloadQrSvg}
-                className="btn-stitch-secondary text-[11px] py-2 flex items-center justify-center gap-1 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Baixar SVG</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCopyShortUrl}
-                className="btn-stitch-secondary text-[11px] py-2 flex items-center justify-center gap-1 cursor-pointer"
-              >
-                {copiedLink ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5 text-purple-400" />
-                )}
-                <span>Copiar</span>
-              </button>
-            </div>
-
-            {/* Box de Teste Instantâneo */}
-            <div className="p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-3">
-              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-                <Camera className="w-4 h-4" />
-              </div>
-              <div className="text-xs">
-                <div className="font-semibold text-white mb-0.5">Box de Teste Instantâneo</div>
-                <div className="text-slate-300 text-[11px] leading-relaxed">
-                  Escaneie com a câmera do seu celular para testar o redirecionamento imediato em ambiente de homologação.
+                <div className="mt-3 text-center">
+                  <div className="text-xs font-mono text-purple-300 font-medium truncate max-w-[240px]">
+                    {domain}/{activeSlug}
+                  </div>
                 </div>
               </div>
+
+              {/* Esquema de Cor do QR Code */}
+              <div>
+                <label className="block text-[11px] text-slate-400 mb-1.5 font-medium">
+                  Cor de Destaque do QR Code:
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setQrColorScheme("purple")}
+                    className={`py-1.5 px-2 rounded-md text-xs font-medium border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      qrColorScheme === "purple"
+                        ? "bg-purple-600/20 border-purple-500 text-purple-300"
+                        : "bg-[#090C14] border-white/[0.08] text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                    <span>Roxo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setQrColorScheme("mint")}
+                    className={`py-1.5 px-2 rounded-md text-xs font-medium border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      qrColorScheme === "mint"
+                        ? "bg-emerald-600/20 border-emerald-500 text-emerald-300"
+                        : "bg-[#090C14] border-white/[0.08] text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                    <span>Verde</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setQrColorScheme("mono")}
+                    className={`py-1.5 px-2 rounded-md text-xs font-medium border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                      qrColorScheme === "mono"
+                        ? "bg-white/10 border-white/30 text-white"
+                        : "bg-[#090C14] border-white/[0.08] text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full bg-white" />
+                    <span>Branco</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Ações Rápidas do Preview */}
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.06]">
+                <button
+                  type="button"
+                  onClick={handleCopyShortUrl}
+                  className="py-1.5 px-2 rounded-md bg-[#121622] hover:bg-white/[0.08] border border-white/[0.08] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1"
+                  title="Copiar URL Curta"
+                >
+                  {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>Copiar</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadQrPng}
+                  className="py-1.5 px-2 rounded-md bg-[#121622] hover:bg-white/[0.08] border border-white/[0.08] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1"
+                  title="Baixar PNG em Alta Resolução"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>PNG</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadQrSvg}
+                  className="py-1.5 px-2 rounded-md bg-[#121622] hover:bg-white/[0.08] border border-white/[0.08] text-xs text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center gap-1"
+                  title="Baixar SVG Vetorial"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>SVG</span>
+                </button>
+              </div>
             </div>
+          </div>
+        </div>
+
+        {/* Rodapé Fixo de Ações - Sempre Visível em Qualquer Resolução */}
+        <div className="sticky bottom-0 -mx-5 sm:-mx-7 -mb-5 sm:-mb-7 p-4 bg-[#0B0E17]/95 backdrop-blur-md border-t border-white/[0.08] flex items-center justify-between gap-3 z-30">
+          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate hidden sm:flex">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>Proteções ativas: mitigação de SSRF, filtro de bots e deduplicação de QR</span>
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="btn-stitch-secondary text-xs px-4 py-2 cursor-pointer"
+              >
+                Cancelar
+              </button>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || slugStatus.status === "unavailable"}
+              className="btn-stitch-primary text-xs font-semibold px-5 py-2 cursor-pointer disabled:opacity-50"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Salvando...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>{isEdit ? "Salvar Alterações" : "Criar Smart Link"}</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </form>

@@ -90,10 +90,10 @@ export function CampaignsView({
 
         <button
           onClick={onOpenCreate}
-          className="btn-stitch-primary text-xs font-semibold px-4 py-2.5 cursor-pointer shadow-lg shadow-purple-600/30 self-start sm:self-auto"
+          className="btn-stitch-primary text-xs font-semibold px-4 py-2.5 cursor-pointer shadow-md shadow-purple-600/25 self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
-          <span>+ Nova Campanha</span>
+          <span>Nova Campanha</span>
         </button>
       </div>
 

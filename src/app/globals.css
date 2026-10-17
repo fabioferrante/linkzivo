@@ -40,11 +40,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Card e Containers Premium (SOP: rounded-xl, borda sutil, sombra discreta) */
+/* Card e Containers Premium (Cantos quase retos, borda sutil, sombra discreta) */
 .card-premium {
   background-color: rgba(17, 22, 37, 0.6);
   border: 1px solid var(--border-subtle);
-  border-radius: 0.75rem; /* rounded-xl */
+  border-radius: 0.375rem; /* cantos quase retos */
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -56,13 +56,13 @@ body {
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
 }
 
-/* Botões Padrão e Cápsula (SOP: rounded-lg ou rounded-full para botões de destaque) */
+/* Botões Padrão e Cápsula */
 .btn-primary {
   background-color: var(--brand-primary);
   color: #FFFFFF;
   font-weight: 500;
-  border-radius: 0.5rem; /* rounded-lg */
-  padding: 0.625rem 1.25rem;
+  border-radius: 0.375rem; /* cantos quase retos */
+  padding: 0.5rem 1rem;
   transition: background-color 0.15s ease, transform 0.1s ease;
   display: inline-flex;
   align-items: center;
@@ -132,12 +132,12 @@ body {
   background: #7C3AED;
 }
 
-/* Utilitários Google Stitch */
+/* Utilitários Google Stitch (Cantos quase retos e refinados) */
 .stitch-card {
   background: #111522;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 0.875rem;
-  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.45);
+  border-radius: 0.375rem; /* cantos quase retos */
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.4);
 }
 
 .stitch-card-hover {
@@ -145,16 +145,16 @@ body {
 }
 .stitch-card-hover:hover {
   border-color: rgba(124, 58, 237, 0.35);
-  box-shadow: 0 8px 30px -4px rgba(124, 58, 237, 0.15);
+  box-shadow: 0 6px 24px -4px rgba(124, 58, 237, 0.12);
 }
 
 .btn-stitch-primary {
   background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
   color: #FFFFFF;
   font-weight: 500;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem; /* cantos quase retos */
   padding: 0.5rem 1rem;
-  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.35);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
   transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
@@ -163,7 +163,7 @@ body {
 }
 .btn-stitch-primary:hover {
   background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
-  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.5);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
   transform: translateY(-1px);
 }
 .btn-stitch-primary:active {
@@ -175,7 +175,7 @@ body {
   color: #E2E8F0;
   border: 1px solid rgba(255, 255, 255, 0.08);
   font-weight: 500;
-  border-radius: 0.5rem;
+  border-radius: 0.375rem; /* cantos quase retos */
   padding: 0.5rem 1rem;
   transition: all 0.15s ease;
   display: inline-flex;

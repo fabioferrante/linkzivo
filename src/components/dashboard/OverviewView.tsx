@@ -126,7 +126,8 @@ export function OverviewView({
 
   // Timeline para render do SVG do gráfico
   const timeline = analytics?.dailyTimeline || [];
-  const maxClicksInTimeline = Math.max(...timeline.map((t) => t.clicks), 10);
+  const realPeakClicks = timeline.length > 0 ? Math.max(...timeline.map((t) => t.clicks)) : 0;
+  const scaleMaxClicks = Math.max(realPeakClicks, 1);
 
   // Gerador de pontos SVG para a curva suave
   const svgWidth = 600;
@@ -136,13 +137,13 @@ export function OverviewView({
 
   const pointsTotals = timeline.map((item, idx) => {
     const x = paddingX + (idx / Math.max(timeline.length - 1, 1)) * (svgWidth - paddingX * 2);
-    const y = svgHeight - paddingY - (item.clicks / maxClicksInTimeline) * (svgHeight - paddingY * 2);
+    const y = svgHeight - paddingY - (item.clicks / scaleMaxClicks) * (svgHeight - paddingY * 2);
     return `${x},${y}`;
   }).join(" ");
 
   const pointsQr = timeline.map((item, idx) => {
     const x = paddingX + (idx / Math.max(timeline.length - 1, 1)) * (svgWidth - paddingX * 2);
-    const y = svgHeight - paddingY - (item.qrScans / maxClicksInTimeline) * (svgHeight - paddingY * 2);
+    const y = svgHeight - paddingY - (item.qrScans / scaleMaxClicks) * (svgHeight - paddingY * 2);
     return `${x},${y}`;
   }).join(" ");
 
@@ -168,7 +169,11 @@ export function OverviewView({
   const quotaLimit = user?.workspacePlan === "FREE" ? 1000 : user?.workspacePlan === "PRO" ? 50000 : 500000;
   const quotaPct = Math.min(Math.round((totalClicks / quotaLimit) * 100), 100);
 
-  const greetingName = user?.name ? user.name.split(" ")[0] : "Lucas";
+  const greetingName = user?.name
+    ? user.name.split(" ")[0]
+    : user?.email
+    ? user.email.split("@")[0]
+    : "Afiliado";
 
   return (
     <div className="space-y-6">
@@ -320,11 +325,6 @@ export function OverviewView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {activeLinksCount.toLocaleString("pt-BR")}
             </span>
-            {activeLinksCount > 0 ? (
-              <span className="badge-stitch-mint text-[11px]">{activeLinksCount} ativos</span>
-            ) : (
-              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0 links</span>
-            )}
           </div>
           {/* Mini Sparkline decorativa */}
           <div className="h-6 w-full flex items-end">
@@ -333,7 +333,7 @@ export function OverviewView({
                 d={activeLinksCount > 0 ? "M0,15 Q25,18 50,8 T100,2" : "M0,18 L100,18"}
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.75"
               />
             </svg>
           </div>
@@ -356,11 +356,6 @@ export function OverviewView({
             <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
               {totalClicks.toLocaleString("pt-BR")}
             </span>
-            {totalClicks > 0 ? (
-              <span className="badge-stitch-mint text-[11px]">{totalClicks} cliques</span>
-            ) : (
-              <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
-            )}
           </div>
           <div className="h-6 w-full flex items-end">
             <svg className={`w-full h-full ${totalClicks > 0 ? "text-purple-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
@@ -368,7 +363,7 @@ export function OverviewView({
                 d={totalClicks > 0 ? "M0,18 Q20,12 50,14 T100,3" : "M0,18 L100,18"}
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.75"
               />
             </svg>
           </div>
@@ -473,13 +468,15 @@ export function OverviewView({
               </div>
             </div>
 
-            {/* Badge de Pico */}
-            <div className="flex justify-end mb-2">
-              <span className="px-2.5 py-1 rounded-full bg-[#181D2C] border border-white/[0.08] text-[10px] font-mono text-purple-300 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
-                Pico: {maxClicksInTimeline} acessos
-              </span>
-            </div>
+            {/* Badge de Pico - somente exibido se houver dados reais de acessos */}
+            {realPeakClicks > 0 && (
+              <div className="flex justify-end mb-2">
+                <span className="px-2.5 py-1 rounded-full bg-[#181D2C] border border-white/[0.08] text-[10px] font-mono text-purple-300 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                  Pico: {realPeakClicks} {realPeakClicks === 1 ? "acesso" : "acessos"}
+                </span>
+              </div>
+            )}
 
             {/* SVG Gráfico Curvo Suave */}
             <div className="w-full h-48 bg-[#090C14] rounded-xl p-3 border border-white/[0.04] relative flex items-center justify-center">
@@ -498,26 +495,44 @@ export function OverviewView({
                     </linearGradient>
                   </defs>
 
-                  {/* Linhas de Grade */}
+                  {/* Linhas de Grade Sutis */}
                   <line x1="0" y1="40" x2={svgWidth} y2="40" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
                   <line x1="0" y1="90" x2={svgWidth} y2="90" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
                   <line x1="0" y1="140" x2={svgWidth} y2="140" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
 
-                  {/* Curva Totais (Roxo) */}
+                  {/* Área em degradê suave sob a curva Totais */}
+                  {timeline.length > 1 && pointsTotals && (
+                    <polygon
+                      points={`${pointsTotals} ${svgWidth - paddingX},${svgHeight - paddingY} ${paddingX},${svgHeight - paddingY}`}
+                      fill="url(#purpleGrad)"
+                      opacity="0.35"
+                    />
+                  )}
+
+                  {/* Área em degradê suave sob a curva QR Scans */}
+                  {timeline.length > 1 && pointsQr && (
+                    <polygon
+                      points={`${pointsQr} ${svgWidth - paddingX},${svgHeight - paddingY} ${paddingX},${svgHeight - paddingY}`}
+                      fill="url(#mintGrad)"
+                      opacity="0.25"
+                    />
+                  )}
+
+                  {/* Curva Totais Suave (Roxo) */}
                   <polyline
                     fill="none"
                     stroke="#8B5CF6"
-                    strokeWidth="3"
+                    strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     points={pointsTotals}
                   />
 
-                  {/* Curva QR Scans (Verde Mint) */}
+                  {/* Curva QR Scans Suave (Verde Mint) */}
                   <polyline
                     fill="none"
                     stroke="#10B981"
-                    strokeWidth="2.5"
+                    strokeWidth="1.75"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     points={pointsQr}
@@ -734,40 +749,6 @@ export function OverviewView({
               )}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      {/* Barra Inferior: Consumo da Cota Mensal */}
-      <div className="p-4 rounded-xl bg-[#121622] border border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-purple-600/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
-            <Zap className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-xs font-bold text-white">
-              Consumo da Cota Mensal ({user?.workspacePlan || "PRO Plan"}){" "}
-              <span className="text-purple-400 font-mono">{quotaPct}%</span>
-            </div>
-            <div className="text-[11px] text-slate-400 font-mono">
-              {totalClicks.toLocaleString("pt-BR")} de {quotaLimit.toLocaleString("pt-BR")} cliques consumidos neste ciclo • Renova em 9 dias
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="w-full sm:w-48 h-2 rounded-full bg-[#090C14] border border-white/[0.08] overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-purple-600 to-indigo-500 rounded-full transition-all"
-              style={{ width: `${quotaPct}%` }}
-            />
-          </div>
-
-          <button
-            onClick={() => alert("Para aumentar seu limite ou migrar para Enterprise, entre em contato com o suporte Linkzivo.")}
-            className="btn-stitch-primary text-xs shrink-0 cursor-pointer"
-          >
-            Aumentar Limite
-          </button>
         </div>
       </div>
     </div>

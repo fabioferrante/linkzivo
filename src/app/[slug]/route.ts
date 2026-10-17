@@ -1,11 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { db } from "@/lib/db";
 import { generateClickId } from "@/lib/slug";
 
+/**
+ * Validação mandatória de AUTH_SECRET.
+ * Em produção: é estritamente obrigatório possuir no mínimo 32 caracteres.
+ * Caso esteja ausente ou com menos de 32 caracteres, a inicialização é imediatamente interrompida
+ * com mensagem segura de erro, eliminando qualquer salt efêmero (que geraria inconsistência de
+ * fingerprints entre réplicas/processos em cluster) e prevenindo execução insegura.
+ * Em desenvolvimento/testes locais: provê comportamento conveniente sem reintroduzir fallback em produção.
+ * O valor do segredo nunca é registrado em logs.
+ */
+function getValidatedAuthSalt(): string {
+  const secret = process.env.AUTH_SECRET;
+  const isValid = typeof secret === "string" && secret.trim().length >= 32;
+
+  if (process.env.NODE_ENV === "production") {
+    if (!isValid) {
+      throw new Error(
+        "[Fatal Security Error] AUTH_SECRET environment variable is missing or has less than 32 characters in production. Application startup aborted."
+      );
+    }
+    return secret.trim();
+  }
+
+  // Ambiente de desenvolvimento / testes locais
+  return isValid ? secret.trim() : "linkzivo-dev-local-salt-32chars-minimum-token";
+}
+
+// Em ambiente de produção, valida na carga do módulo para interromper o startup imediatamente
+if (process.env.NODE_ENV === "production") {
+  getValidatedAuthSalt();
+}
+
 export const dynamic = "force-dynamic";
 
-// Mapa global de debounce em memória por smartLinkId (garante atomicidade mesmo em rajadas concorrentes de câmeras/scanners)
-const qrScanDebounceMap = new Map<string, number>();
 
 /**
  * Endpoint de Redirecionamento de Ultra Baixa Latência (Smart Link Resolver).
@@ -166,89 +196,154 @@ export async function GET(
 
   // 6. Registro do clique
   // Ignora requisições de prefetch puro ou bots para não inflar métricas humanas
+  let recordedQrScan = false;
+
   if (!isPrefetch && !isBotOrCrawler) {
     let shouldRecord = true;
 
-    // Se for acesso por QR Code, deduplica rajadas concorrentes de câmera/leitor/navegador (janela de 15s)
     if (isQrScan) {
-      const now = Date.now();
-      const lastScanTime = qrScanDebounceMap.get(link.id);
-      if (lastScanTime && now - lastScanTime < 15000) {
-        shouldRecord = false;
-      } else {
-        qrScanDebounceMap.set(link.id, now);
-      }
-    }
-
-    if (shouldRecord) {
-      try {
-        if (isQrScan) {
-          const recentScan = await db.click.findFirst({
+      // 6.1. Validação do cookie de correlação (para acessos sequenciais/retries nos 15s)
+      const qrCookie = request.cookies.get(`__lz_qr_${link.id}`)?.value;
+      if (qrCookie && qrCookie.length >= 8 && qrCookie.length <= 40) {
+        try {
+          const existingScan = await db.click.findFirst({
             where: {
+              id: qrCookie,
               smartLinkId: link.id,
               isQrScan: true,
               timestamp: { gte: new Date(Date.now() - 15000) },
             },
-            orderBy: { timestamp: "desc" },
-            select: { id: true, device: true, browser: true, os: true },
+            select: { id: true },
           });
 
-          if (recentScan) {
+          if (existingScan) {
             shouldRecord = false;
-            // Se o primeiro registro foi um handshake da câmera e agora abriu o navegador completo, enriquece os metadados
-            if (recentScan.device !== device || recentScan.browser === "Outro") {
-              await db.click.update({
-                where: { id: recentScan.id },
-                data: {
-                  device,
-                  os: os !== "Outro" ? os : recentScan.os,
-                  browser: browser !== "Outro" ? browser : recentScan.browser,
-                },
-              }).catch(() => {});
+            recordedQrScan = true;
+          }
+        } catch {
+          // Em caso de erro transitório de leitura, prossegue para verificação transacional
+        }
+      }
+    }
+
+    if (shouldRecord) {
+      // 6.2. Obtenção do endereço IP e identificadores de rede disponíveis
+      // DOCUMENTAÇÃO E LIMITAÇÕES DE SEGURANÇA DE REDE:
+      // A ordem de resolução (cf-connecting-ip -> x-real-ip -> x-forwarded-for) é preservada
+      // para compatibilidade com a infraestrutura de borda/CDN.
+      // GARANTIA COMPROVADA: A expressão regular /^[\da-f.:]{3,45}$/i valida unicamente
+      // a conformidade sintática do formato do endereço (IPv4/IPv6 sanitizado).
+      // LIMITAÇÃO INERENTE: A regex NÃO comprova autenticidade ou procedência da origem do endereço IP.
+      // Em ambientes sem garantia estrita da camada de borda (ex.: edge proxies que não sobrescrevam
+      // ou expurguem cabeçalhos forjados), cabeçalhos HTTP podem ser manipulados pelo cliente externo.
+      // A confiança na origem não pode ser comprovada exclusivamente a nível de aplicação Next.js.
+      // O fingerprint gerado atua estritamente como uma heurística de amortecimento de concorrência
+      // para deduplicação temporária de QR Codes (janela de 3s), e NUNCA como mecanismo de autenticação ou autorização.
+      // O endereço IP bruto NUNCA é persistido nem registrado em logs (em conformidade com a LGPD e privacidade).
+      const rawClientIp =
+        request.headers.get("cf-connecting-ip") ||
+        request.headers.get("x-real-ip") ||
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        "127.0.0.1";
+      const clientIp = /^[\da-f.:]{3,45}$/i.test(rawClientIp) ? rawClientIp : "127.0.0.1";
+      const acceptLang = request.headers.get("accept-language") || "";
+      const salt = getValidatedAuthSalt();
+
+      // Pseudonimização unidirecional criptográfica (sem armazenar IP bruto)
+      // LIMITAÇÃO DE COLISÃO: Visitantes compartilhando a mesma rede (mesmo IP público via NAT/Wi-Fi),
+      // mesmo User-Agent (mesmo dispositivo/versão) e mesmo Accept-Language produzirão o mesmo fingerprint.
+      // Dentro da janela de 3 segundos, acessos simultâneos desses usuários colidirão e serão amortecidos.
+      const clientFingerprint = crypto
+        .createHash("sha256")
+        .update(`${clientIp}:${userAgent}:${acceptLang}:${salt}`)
+        .digest("hex");
+
+      const lockId = crypto
+        .createHash("sha256")
+        .update(`${link.id}:${clientFingerprint}`)
+        .digest("hex");
+
+      const now = new Date();
+      const lockWindowMs = 3000; // Janela de 3 segundos para absorver concorrência de pré-carregamento móvel
+      const lockedUntil = new Date(now.getTime() + lockWindowMs);
+
+      // 6.3. Transação Atômica Unificada: Lock + Click + Contadores sob garantia ACID do PostgreSQL
+      try {
+        await db.$transaction(async (tx) => {
+          if (isQrScan) {
+            // Operação de idempotência atômica no PostgreSQL apoiada em constraint primária:
+            // Tenta inserir o lock; se colidir (concorrência simultânea), só assume se o lock anterior estiver expirado (< NOW()).
+            const lockRows = await tx.$queryRaw<Array<{ id: string }>>`
+              INSERT INTO "QrScanLock" ("id", "smartLinkId", "clickId", "lockedUntil", "createdAt")
+              VALUES (${lockId}, ${link.id}, ${clickId}, ${lockedUntil}, NOW())
+              ON CONFLICT ("id") DO UPDATE
+              SET "clickId" = EXCLUDED."clickId",
+                  "lockedUntil" = EXCLUDED."lockedUntil"
+              WHERE "QrScanLock"."lockedUntil" < NOW()
+              RETURNING "id";
+            `;
+
+            if (!lockRows || lockRows.length === 0) {
+              // Lock ativo pertencente a outra requisição concorrente do mesmo escaneamento.
+              // Aborta a gravação do clique e contadores nesta requisição duplicada sem gerar erro.
+              recordedQrScan = true;
+              return;
             }
           }
-        }
 
-        if (shouldRecord) {
-          await db.$transaction([
-            db.click.create({
+          // Gravação atômica do Click dentro da MESMA transação
+          await tx.click.create({
+            data: {
+              id: clickId,
+              smartLinkId: link.id,
+              workspaceId: link.workspaceId,
+              campaignId: link.campaignId,
+              productId: link.productId,
+              offerId: link.offerId,
+              channelId: link.channelId,
+              country,
+              device,
+              os,
+              browser,
+              referer: referer?.slice(0, 500),
+              isQrScan,
+            },
+          });
+
+          // Atualização atômica dos contadores no SmartLink dentro da MESMA transação
+          await tx.smartLink.update({
+            where: { id: link.id },
+            data: {
+              clickCount: { increment: 1 },
+              qrScanCount: isQrScan ? { increment: 1 } : undefined,
+            },
+          });
+
+          if (isQrScan) {
+            await tx.qrCode.updateMany({
+              where: { smartLinkId: link.id },
               data: {
-                id: clickId,
-                smartLinkId: link.id,
-                workspaceId: link.workspaceId,
-                campaignId: link.campaignId,
-                productId: link.productId,
-                offerId: link.offerId,
-                channelId: link.channelId,
-                country,
-                device,
-                os,
-                browser,
-                referer: referer?.slice(0, 500),
-                isQrScan,
+                scanCount: { increment: 1 },
               },
-            }),
-            db.smartLink.update({
-              where: { id: link.id },
-              data: {
-                clickCount: { increment: 1 },
-                qrScanCount: isQrScan ? { increment: 1 } : undefined,
+            });
+            recordedQrScan = true;
+          }
+        });
+
+        // Limpeza assíncrona não bloqueante de locks expirados antigos (> 60s)
+        if (isQrScan) {
+          db.qrScanLock
+            .deleteMany({
+              where: {
+                lockedUntil: { lt: new Date(Date.now() - 60000) },
               },
-            }),
-            ...(isQrScan
-              ? [
-                  db.qrCode.updateMany({
-                    where: { smartLinkId: link.id },
-                    data: {
-                      scanCount: { increment: 1 },
-                    },
-                  }),
-                ]
-              : []),
-          ]);
+            })
+            .catch(() => {});
         }
       } catch (err) {
-        console.error("[Tracking Error]", err);
+        console.error("[Tracking Transaction Error]", err);
+        // Em caso de erro na transação, o PostgreSQL executou ROLLBACK automático:
+        // Nenhum lock órfão foi deixado, nenhum click parcial foi gravado e contadores permanecem consistentes.
       }
     }
   }
@@ -259,6 +354,20 @@ export async function GET(
   response.headers.set("Pragma", "no-cache");
   response.headers.set("Expires", "0");
   response.headers.set("X-Linkzivo-Click-Id", clickId);
+
+  // Anexa cookie efêmero de correlação apenas quando o acesso de QR Code for gravado ou já estiver ativo
+  // Max-Age de 15s: expira rapidamente e não realiza rastreamento persistente de visitantes
+  if (isQrScan && recordedQrScan) {
+    response.cookies.set({
+      name: `__lz_qr_${link.id}`,
+      value: clickId,
+      maxAge: 15,
+      path: `/${slug}`,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
 
   return response;
 }
