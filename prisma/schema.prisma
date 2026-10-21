@@ -13,47 +13,36 @@ model User {
   id            String    @id @default(cuid())
   name          String?
   email         String    @unique
-  passwordHash  String
+  passwordHash  String?
   avatarUrl     String?
   role          String    @default("USER") // USER, ADMIN
   status        String    @default("ACTIVE") // ACTIVE, SUSPENDED, PENDING
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  workspaces        WorkspaceMember[]
+  workspace         Workspace?
   createdLinks      SmartLink[]
   auditLogs         AuditLog[]
   sessions          Session[]
+  accounts          Account[]
 }
 
 model Workspace {
   id          String    @id @default(cuid())
+  userId      String    @unique
   name        String
   slug        String    @unique
   plan        String    @default("FREE") // FREE, CREATOR, PRO, AGENCY
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  members       WorkspaceMember[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   products      Product[]
   campaigns     Campaign[]
   channels      Channel[]
   smartLinks    SmartLink[]
   subscriptions Subscription[]
   sessions      Session[]
-}
-
-model WorkspaceMember {
-  id          String    @id @default(cuid())
-  workspaceId String
-  userId      String
-  role        String    @default("OWNER") // OWNER, ADMIN, MEMBER
-  createdAt   DateTime  @default(now())
-
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([workspaceId, userId])
 }
 
 model Product {
@@ -353,5 +342,33 @@ model Session {
 
   @@index([userId])
   @@index([workspaceId])
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String   // "google"
+  providerAccountId String   // Google "sub" (identificador imutável estável)
+  email             String?  // E-mail reportado pelo provedor
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@unique([userId, provider])
+  @@index([userId])
+}
+
+model OidcChallenge {
+  id           String   @id // challengeId opaco gerado no início do fluxo
+  state        String
+  nonce        String
+  codeVerifier String
+  targetUserId String?  // Preenchido quando intenção for conectar conta a usuário autenticado
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([expiresAt])
 }
 

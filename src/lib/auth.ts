@@ -1,9 +1,18 @@
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { db } from "./db";
 
 const SESSION_COOKIE_NAME = "linkzivo_session";
+
+/**
+ * Normaliza endereço de e-mail de forma universal e segura (minúsculas e sem espaços).
+ */
+export function normalizeEmail(email: string): string {
+  if (!email || typeof email !== "string") return "";
+  return email.trim().toLowerCase();
+}
 
 /**
  * Obtém e valida o segredo de autenticação.
@@ -89,55 +98,84 @@ export interface SessionUser {
 
 /**
  * Garante que um workspace e usuário padrão existam para ambiente de teste inicial.
+ * Suporta injeção de cliente transacional para garantir atomicidade em fluxos de cadastro.
  */
-export async function getOrCreateDefaultWorkspace(userId: string) {
-  let member = await db.workspaceMember.findFirst({
+export async function getOrCreateDefaultWorkspace(
+  userId: string,
+  client: Prisma.TransactionClient | PrismaClient = db
+) {
+  // 1. Verifica se o usuário já possui seu workspace exclusivo (1:1)
+  const existingWs = await client.workspace.findUnique({
     where: { userId },
-    include: { workspace: true },
   });
 
-  if (!member) {
-    const workspace = await db.workspace.create({
-      data: {
-        name: "Meu Workspace",
-        slug: `ws-${userId.slice(0, 8)}`,
-        plan: "CREATOR",
-      },
-    });
-
-    member = await db.workspaceMember.create({
-      data: {
-        userId,
-        workspaceId: workspace.id,
-        role: "OWNER",
-      },
-      include: { workspace: true },
-    });
+  if (existingWs) {
+    return existingWs;
   }
 
-  return member.workspace;
+  // 2. Criação resiliente a concorrência com tentativa incremental de slug
+  const baseSlug = `ws-${userId.slice(0, 8)}`;
+  let attempts = 0;
+  const maxAttempts = 5;
+
+  while (attempts < maxAttempts) {
+    const slugCandidate = attempts === 0 ? baseSlug : `${baseSlug}-${crypto.randomBytes(3).toString("hex")}`;
+    try {
+      const workspace = await client.workspace.create({
+        data: {
+          userId,
+          name: "Meu Workspace",
+          slug: slugCandidate,
+          plan: "CREATOR",
+        },
+      });
+      return workspace;
+    } catch (err: unknown) {
+      const isPrismaError = err && typeof err === "object" && "code" in err;
+      if (isPrismaError && (err as { code: string }).code === "P2002") {
+        // Se a violação foi de userId, outro processo concorrente acabou de criar o workspace do usuário
+        const concurrentWs = await client.workspace.findUnique({
+          where: { userId },
+        });
+        if (concurrentWs) {
+          return concurrentWs;
+        }
+        // Se foi colisão do slug, incrementa tentativa com novo sufixo CSPRNG
+        attempts++;
+        if (attempts >= maxAttempts) {
+          throw err;
+        }
+      } else {
+        // Erro inesperado de infraestrutura: propaga sem mascarar
+        throw err;
+      }
+    }
+  }
+
+  throw new Error("[Workspace Creation Error] Não foi possível gerar um workspace exclusivo.");
 }
 
 /**
  * Autentica usuário com email e senha.
  */
 export async function authenticateUser(email: string, password: string): Promise<SessionUser | null> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+
   const user = await db.user.findUnique({
-    where: { email: email.toLowerCase().trim() },
+    where: { email: normalized },
     include: {
-      workspaces: {
-        include: { workspace: true },
-      },
+      workspace: true,
     },
   });
 
-  if (!user) return null;
+  if (!user || !user.passwordHash) return null;
 
   const isValidPassword = await bcrypt.compare(password, user.passwordHash);
   if (!isValidPassword) return null;
 
   const defaultWs =
-    user.workspaces[0]?.workspace || (await getOrCreateDefaultWorkspace(user.id));
+    user.workspace || (await getOrCreateDefaultWorkspace(user.id));
 
   return {
     id: user.id,
@@ -154,8 +192,13 @@ export async function authenticateUser(email: string, password: string): Promise
  * Registra novo usuário com hash seguro.
  */
 export async function registerUser(name: string, email: string, password: string): Promise<SessionUser> {
+  const normalized = normalizeEmail(email);
+  if (!normalized) {
+    throw new Error("Endereço de e-mail inválido.");
+  }
+
   const existing = await db.user.findUnique({
-    where: { email: email.toLowerCase().trim() },
+    where: { email: normalized },
   });
 
   if (existing) {
@@ -167,7 +210,7 @@ export async function registerUser(name: string, email: string, password: string
   const user = await db.user.create({
     data: {
       name,
-      email: email.toLowerCase().trim(),
+      email: normalized,
       passwordHash,
     },
   });
@@ -238,7 +281,7 @@ export async function getSession(): Promise<SessionUser | null> {
     const user = sessionRecord.user;
     if (!user || user.status !== "ACTIVE") return null;
 
-    // 5. Validação rigorosa do workspace e da associação em WorkspaceMember
+    // 5. Validação rigorosa do workspace exclusivo (1:1)
     let workspace: { id: string; name: string; plan: string } | null = null;
 
     if (user.role === "ADMIN") {
@@ -249,24 +292,19 @@ export async function getSession(): Promise<SessionUser | null> {
       if (!ws) return null;
       workspace = ws;
     } else {
-      const membership = await db.workspaceMember.findUnique({
+      // Em 1:1, o workspace deve ter userId === user.id
+      const ws = await db.workspace.findFirst({
         where: {
-          workspaceId_userId: {
-            workspaceId,
-            userId: user.id,
-          },
+          id: workspaceId,
+          userId: user.id,
         },
-        include: {
-          workspace: {
-            select: { id: true, name: true, plan: true },
-          },
-        },
+        select: { id: true, name: true, plan: true },
       });
 
-      if (!membership || !membership.workspace) {
+      if (!ws) {
         return null;
       }
-      workspace = membership.workspace;
+      workspace = ws;
     }
 
     return {

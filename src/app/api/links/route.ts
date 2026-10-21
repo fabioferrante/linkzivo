@@ -109,8 +109,24 @@ export async function POST(request: NextRequest) {
         where: { slug: "public-anonymous" },
       });
       if (!publicWs) {
+        // Assegura usuário de sistema para o workspace público mantendo restrição 1:1
+        let systemUser = await db.user.findUnique({
+          where: { email: "public-system@linkzivo.internal" },
+        });
+        if (!systemUser) {
+          systemUser = await db.user.create({
+            data: {
+              name: "Sistema Público",
+              email: "public-system@linkzivo.internal",
+              role: "USER",
+              status: "ACTIVE",
+            },
+          });
+        }
+
         publicWs = await db.workspace.create({
           data: {
+            userId: systemUser.id,
             name: "Público / Visitantes",
             slug: "public-anonymous",
             plan: "FREE",
