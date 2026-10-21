@@ -230,7 +230,7 @@ export async function registerUser(name: string, email: string, password: string
 
 /**
  * Retorna o usuário autenticado na requisição atual através do cookie seguro assinado.
- * Valida a assinatura HMAC, a existência e status do usuário e a filiação ativa em WorkspaceMember.
+ * Valida a assinatura HMAC, a existência e status do usuário e a integridade do seu workspace exclusivo 1:1.
  */
 export async function getSession(): Promise<SessionUser | null> {
   const cookieStore = await cookies();

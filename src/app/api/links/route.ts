@@ -104,34 +104,52 @@ export async function POST(request: NextRequest) {
     let creatorId = session?.id;
 
     if (!workspaceId) {
-      // Criação ou busca de workspace anônimo/default para permitir encurtamento na Home
+      // Reutiliza ou inicializa de forma atômica o workspace exclusivo do usuário de sistema público (1:1)
       let publicWs = await db.workspace.findUnique({
         where: { slug: "public-anonymous" },
       });
-      if (!publicWs) {
-        // Assegura usuário de sistema para o workspace público mantendo restrição 1:1
-        let systemUser = await db.user.findUnique({
-          where: { email: "public-system@linkzivo.internal" },
-        });
-        if (!systemUser) {
-          systemUser = await db.user.create({
-            data: {
-              name: "Sistema Público",
-              email: "public-system@linkzivo.internal",
-              role: "USER",
-              status: "ACTIVE",
-            },
-          });
-        }
 
-        publicWs = await db.workspace.create({
-          data: {
-            userId: systemUser.id,
-            name: "Público / Visitantes",
-            slug: "public-anonymous",
-            plan: "FREE",
-          },
-        });
+      if (!publicWs) {
+        try {
+          publicWs = await db.$transaction(async (tx) => {
+            let systemUser = await tx.user.findUnique({
+              where: { email: "public-system@linkzivo.internal" },
+            });
+            if (!systemUser) {
+              systemUser = await tx.user.create({
+                data: {
+                  name: "Sistema Público",
+                  email: "public-system@linkzivo.internal",
+                  role: "USER",
+                  status: "ACTIVE",
+                },
+              });
+            }
+
+            const existing = await tx.workspace.findUnique({
+              where: { userId: systemUser.id },
+            });
+            if (existing) return existing;
+
+            return await tx.workspace.create({
+              data: {
+                userId: systemUser.id,
+                name: "Público / Visitantes",
+                slug: "public-anonymous",
+                plan: "FREE",
+              },
+            });
+          });
+        } catch (err: unknown) {
+          const isP2002 =
+            err && typeof err === "object" && "code" in err && (err as { code: string }).code === "P2002";
+          if (isP2002) {
+            publicWs = await db.workspace.findUnique({
+              where: { slug: "public-anonymous" },
+            });
+          }
+          if (!publicWs) throw err;
+        }
       }
       workspaceId = publicWs.id;
       creatorId = undefined;

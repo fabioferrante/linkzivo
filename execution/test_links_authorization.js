@@ -459,13 +459,13 @@ async function runAuthorizationSuite() {
     const tamperedWsData = JSON.parse(tamperedWsRes.body || "{}");
     assert(tamperedWsData.authenticated === false, "Alteração do workspaceId sem assinatura correspondente é REJEITADA com sucesso");
 
-    // 8.8 Cookie com assinatura válida MAS usuário sem vínculo na tabela WorkspaceMember
+    // 8.8 Cookie com assinatura válida MAS workspace pertencente a outro usuário (violação 1:1)
     const crossWsData = await generateSignedSession(userA.id, workspaceIdB);
     const crossWsRes = await httpRequest(`${APP_URL}/api/auth`, {
       headers: { Cookie: crossWsData.cookie },
     });
     const crossWsJson = JSON.parse(crossWsRes.body || "{}");
-    assert(crossWsJson.authenticated === false, "Usuário sem vínculo em WorkspaceMember é REJEITADO mesmo com HMAC assinado");
+    assert(crossWsJson.authenticated === false, "Workspace de outro usuário é REJEITADO mesmo com HMAC assinado (garantia 1:1)");
 
     // 8.9 Usuário com status inativo (SUSPENDED)
     const suspendedUser = await prisma.user.create({
