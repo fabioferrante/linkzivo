@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
 import { ShortenerForm } from "@/components/ShortenerForm";
 import { AuthModal } from "@/components/AuthModal";
+import { LiveNodeNetwork } from "@/components/landing/LiveNodeNetwork";
 import {
   QrCode,
   Layers,
@@ -73,12 +74,15 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#0B0F19] text-slate-100">
+    <div className="relative min-h-screen flex flex-col bg-[#0B0F19] text-slate-100 overflow-x-hidden">
+      {/* Rede de Pontos Vivos e Conexões Temporárias (Canvas 2D de Fundo) */}
+      <LiveNodeNetwork />
+
       {/* Barra de Navegação */}
       <Navbar user={user} onOpenAuth={() => setAuthModalOpen(true)} />
 
       {/* Hero Section */}
-      <main className="flex-1">
+      <main className="flex-1 relative z-10">
         <section className="pt-12 pb-16 sm:pt-20 sm:pb-20">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center">
             {/* Badge de Categoria */}
@@ -109,7 +113,7 @@ export default function Home() {
                 { step: "02", label: "Organizar", desc: "Pastas por produto, oferta e canal" },
                 { step: "03", label: "Rastrear", desc: "Injeção automática de parâmetro sck" },
                 { step: "04", label: "Medir", desc: "Telemetria de dispositivo e origem" },
-                { step: "05", label: "Atribuir", desc: "Reconciliação com webhooks externos" },
+                { step: "05", label: "Atribuir", desc: "Atribuição por canal, produto e oferta" },
                 { step: "06", label: "Otimizar", desc: "Troca de destino com zero downtime" },
               ].map((item, idx) => (
                 <div
@@ -403,6 +407,14 @@ export default function Home() {
                   <ul className="space-y-2.5 text-xs text-slate-300">
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Até 5 links ocupando vaga</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Analytics dos últimos 30 dias</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Encurtamento com slug customizado</span>
                     </li>
                     <li className="flex items-center gap-2">
@@ -413,9 +425,9 @@ export default function Home() {
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Edição de Destino em tempo real</span>
                     </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Histórico de 7 dias</span>
+                    <li className="flex items-center gap-2 text-slate-500">
+                      <span className="w-4 h-4 text-slate-600 font-bold text-center leading-4 shrink-0">—</span>
+                      <span>Sem expiração ou fallback customizado</span>
                     </li>
                   </ul>
                 </div>
@@ -445,7 +457,23 @@ export default function Home() {
                   <ul className="space-y-2.5 text-xs text-slate-300">
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Campanhas &amp; Canais ilimitados</span>
+                      <span>Até 1.000 links ocupando vaga</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Analytics e histórico de 365 dias</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Expiração agendada de links</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>URL de fallback anti-queda</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>Campanhas, Canais e Link Vault</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -453,33 +481,33 @@ export default function Home() {
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Link Vault de Produtos</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>QR Code em PNG e SVG Vetorial</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Histórico de 90 dias</span>
                     </li>
                   </ul>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setAuthModalOpen(true)}
-                  className="mt-6 w-full py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg shadow-sm transition-colors cursor-pointer"
-                >
-                  Começar Teste Pro
-                </button>
+                <div className="mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setAuthModalOpen(true)}
+                    className="w-full py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg shadow-sm transition-colors cursor-pointer"
+                  >
+                    Começar no Plano Free
+                  </button>
+                  <p className="text-[10px] text-slate-500 text-center mt-1.5">
+                    Novos cadastros iniciam no Free. Ativação via painel.
+                  </p>
+                </div>
               </div>
 
               {/* Plano Pro */}
               <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-white">Pro</h3>
-                  <p className="text-xs text-slate-400 mb-4">Para gestores de tráfego pago</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-white">Pro</h3>
+                    <span className="text-[10px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">Sob Consulta</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-4">Para gestores de tráfego de escala</p>
                   <div className="text-2xl font-bold text-white mb-6">
                     R$ 97<span className="text-xs text-slate-400 font-normal">/mês</span>
                   </div>
@@ -491,15 +519,19 @@ export default function Home() {
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Atribuição via Webhooks de Venda</span>
+                      <span>Até 5.000 links ocupando vaga</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Smart Redirects por dispositivo</span>
+                      <span>Analytics e histórico de 365 dias</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>3 Domínios Customizados</span>
+                      <span>Suporte para alto volume de tráfego</span>
+                    </li>
+                    <li className="flex items-center gap-2 text-slate-400">
+                      <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
+                      <span>Roteamento avançado (em homologação)</span>
                     </li>
                   </ul>
                 </div>
@@ -509,15 +541,18 @@ export default function Home() {
                   onClick={() => setAuthModalOpen(true)}
                   className="mt-6 w-full py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
                 >
-                  Assinar Pro
+                  Consultar Disponibilidade
                 </button>
               </div>
 
               {/* Plano Agency */}
               <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-white">Agency</h3>
-                  <p className="text-xs text-slate-400 mb-4">Para equipes e agências de marketing</p>
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-white">Agency</h3>
+                    <span className="text-[10px] font-mono text-purple-400 bg-purple-400/10 px-1.5 py-0.5 rounded">Sob Consulta</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-4">Para agências e operações multi-equipe</p>
                   <div className="text-2xl font-bold text-white mb-6">
                     R$ 249<span className="text-xs text-slate-400 font-normal">/mês</span>
                   </div>
@@ -525,19 +560,23 @@ export default function Home() {
                   <ul className="space-y-2.5 text-xs text-slate-300">
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Múltiplos Workspaces de Clientes</span>
+                      <span>Tudo do Plano Pro</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Relatórios White-Label</span>
+                      <span>Até 50.000 links ocupando vaga</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Domínios Customizados Ilimitados</span>
+                      <span>Analytics estendido de 730 dias</span>
                     </li>
                     <li className="flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Suporte e SLA Prioritários</span>
+                      <span>Multi-usuários e workspaces</span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>SLA de atendimento dedicado</span>
                     </li>
                   </ul>
                 </div>
@@ -547,7 +586,7 @@ export default function Home() {
                   onClick={() => setAuthModalOpen(true)}
                   className="mt-6 w-full py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
                 >
-                  Falar com Consultor
+                  Falar com Atendimento
                 </button>
               </div>
             </div>

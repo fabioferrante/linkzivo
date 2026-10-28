@@ -69,7 +69,7 @@ export function Navbar({ user: propUser, onOpenAuth, onLogout, onNavigateTab }: 
   const user = currentUser ?? propUser;
 
   // Destinos condicionais: abas do dashboard para logados, ou URL de planos para conversão de visitantes
-  const plansTarget = "https://linkzivo-production.up.railway.app/#planos";
+  const plansTarget = "/#planos";
   const campaignsHref = user ? "/dashboard?tab=campaigns" : plansTarget;
   const analyticsHref = user ? "/dashboard?tab=analytics" : plansTarget;
 
