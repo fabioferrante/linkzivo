@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
                 userId: systemUser.id,
                 name: "Público / Visitantes",
                 slug: "public-anonymous",
-                plan: "FREE",
+                plan: "AGENCY",
               },
             });
           });
@@ -154,6 +154,15 @@ export async function POST(request: NextRequest) {
           if (!publicWs) throw err;
         }
       }
+
+      // Se o workspace público já existia com plano FREE limitado, promove para AGENCY
+      if (publicWs && publicWs.plan !== "AGENCY") {
+        publicWs = await db.workspace.update({
+          where: { id: publicWs.id },
+          data: { plan: "AGENCY" },
+        });
+      }
+
       workspaceId = publicWs.id;
       creatorId = undefined;
     }
