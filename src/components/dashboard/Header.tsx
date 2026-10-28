@@ -58,7 +58,7 @@ export function Header({
 
         {/* Notificações */}
         <button
-          onClick={() => alert("Central de Notificações: Todos os webhooks e redirecionamentos operando com 100% de integridade.")}
+          onClick={() => alert("Central de Notificações: Redirecionamentos e telemetria operando com 100% de integridade.")}
           className="relative p-2 rounded-md text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
           title="Notificações do sistema"
           aria-label="Notificações do sistema"

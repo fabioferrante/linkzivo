@@ -114,37 +114,40 @@ export async function getOrCreateDefaultWorkspace(
   }
 
   // 2. Criação resiliente a concorrência com tentativa incremental de slug
-  const baseSlug = `ws-${userId.slice(0, 8)}`;
   let attempts = 0;
   const maxAttempts = 5;
 
   while (attempts < maxAttempts) {
-    const slugCandidate = attempts === 0 ? baseSlug : `${baseSlug}-${crypto.randomBytes(3).toString("hex")}`;
+    const randomSuffix = crypto.randomBytes(3).toString("hex");
+    const slugCandidate = `ws-${userId.slice(0, 8)}-${randomSuffix}`;
     try {
       const workspace = await client.workspace.create({
         data: {
           userId,
           name: "Meu Workspace",
           slug: slugCandidate,
-          plan: "CREATOR",
+          plan: "FREE",
         },
       });
       return workspace;
     } catch (err: unknown) {
       const isPrismaError = err && typeof err === "object" && "code" in err;
       if (isPrismaError && (err as { code: string }).code === "P2002") {
-        // Se a violação foi de userId, outro processo concorrente acabou de criar o workspace do usuário
-        const concurrentWs = await client.workspace.findUnique({
-          where: { userId },
-        });
-        if (concurrentWs) {
-          return concurrentWs;
+        // Se o client for PrismaClient normal (fora de transaction), pode buscar o workspace criado concorrentemente
+        if ("$transaction" in client) {
+          try {
+            const concurrentWs = await client.workspace.findUnique({
+              where: { userId },
+            });
+            if (concurrentWs) {
+              return concurrentWs;
+            }
+          } catch {
+            // Ignora falha de consulta em fallback e propaga erro original
+          }
         }
-        // Se foi colisão do slug, incrementa tentativa com novo sufixo CSPRNG
-        attempts++;
-        if (attempts >= maxAttempts) {
-          throw err;
-        }
+        // Se estiver em uma transação abortada pelo PostgreSQL, propaga o erro P2002 original intacto
+        throw err;
       } else {
         // Erro inesperado de infraestrutura: propaga sem mascarar
         throw err;
@@ -232,9 +235,25 @@ export async function registerUser(name: string, email: string, password: string
  * Retorna o usuário autenticado na requisição atual através do cookie seguro assinado.
  * Valida a assinatura HMAC, a existência e status do usuário e a integridade do seu workspace exclusivo 1:1.
  */
-export async function getSession(): Promise<SessionUser | null> {
-  const cookieStore = await cookies();
-  const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+export async function getSession(
+  tokenOrReq?: string | { cookies?: { get: (name: string) => { value?: string } | undefined } }
+): Promise<SessionUser | null> {
+  let sessionToken: string | undefined;
+
+  if (typeof tokenOrReq === "string") {
+    sessionToken = tokenOrReq;
+  } else if (tokenOrReq && "cookies" in tokenOrReq && typeof tokenOrReq.cookies?.get === "function") {
+    sessionToken = tokenOrReq.cookies.get(SESSION_COOKIE_NAME)?.value;
+  }
+
+  if (!sessionToken) {
+    try {
+      const cookieStore = await cookies();
+      sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    } catch {
+      sessionToken = undefined;
+    }
+  }
 
   if (!sessionToken) return null;
 

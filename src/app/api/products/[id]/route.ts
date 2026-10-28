@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getAnalyticsDateRange } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -9,15 +10,23 @@ export const dynamic = "force-dynamic";
  * Retorna detalhes do produto, ofertas, campanhas associadas, Smart Links e métricas consolidadas.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   if (!session?.workspaceId) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
+
+  // Resolução do plano atual do workspace para aplicar retenção analítica
+  const workspace = await db.workspace.findUnique({
+    where: { id: session.workspaceId },
+    select: { plan: true },
+  });
+  const currentPlan = workspace?.plan || session.workspacePlan || "FREE";
+  const { startDate } = getAnalyticsDateRange(currentPlan, "all");
 
   const product = await db.product.findFirst({
     where: {
@@ -55,6 +64,7 @@ export async function GET(
         },
       },
       conversions: {
+        where: { timestamp: { gte: startDate } },
         orderBy: { timestamp: "desc" },
         take: 50,
       },
@@ -68,10 +78,13 @@ export async function GET(
   // Links que promovem este produto
   const linkIds = product.smartLinks.map((l) => l.id);
 
-  // Busca cliques reais registrados para os links deste produto
+  // Busca cliques reais registrados para os links deste produto respeitando a retenção do plano
   const clicks = linkIds.length > 0
     ? await db.click.findMany({
-        where: { smartLinkId: { in: linkIds } },
+        where: {
+          smartLinkId: { in: linkIds },
+          timestamp: { gte: startDate },
+        },
         select: {
           id: true,
           smartLinkId: true,
@@ -107,11 +120,11 @@ export async function GET(
 
   const confirmedCommission = product.conversions
     .filter((c) => c.status === "CONFIRMED")
-    .reduce((acc, c) => acc + c.commissionAmount, 0);
+    .reduce((acc, c) => acc + (Number.isFinite(c.commissionAmount) ? Math.max(0, c.commissionAmount) : 0), 0);
 
   const estimatedCommission = product.conversions
     .filter((c) => c.status === "ESTIMATED")
-    .reduce((acc, c) => acc + c.commissionAmount, 0);
+    .reduce((acc, c) => acc + (Number.isFinite(c.commissionAmount) ? Math.max(0, c.commissionAmount) : 0), 0);
 
   return NextResponse.json({
     product,
@@ -139,7 +152,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   if (!session?.workspaceId) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -198,11 +211,11 @@ export async function PATCH(
  * Remove o produto desvinculando os links sem apagá-los e sem quebrar conversões.
  */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   if (!session?.workspaceId) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });

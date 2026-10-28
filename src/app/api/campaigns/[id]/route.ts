@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getAnalyticsDateRange } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -9,15 +10,23 @@ export const dynamic = "force-dynamic";
  * Retorna detalhes completos da campanha, produtos associados, links e métricas reais.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   if (!session?.workspaceId) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   }
+
+  // Resolução do plano atual do workspace para aplicar retenção analítica
+  const workspace = await db.workspace.findUnique({
+    where: { id: session.workspaceId },
+    select: { plan: true },
+  });
+  const currentPlan = workspace?.plan || session.workspacePlan || "FREE";
+  const { startDate } = getAnalyticsDateRange(currentPlan, "all");
 
   const campaign = await db.campaign.findFirst({
     where: {
@@ -49,6 +58,7 @@ export async function GET(
         },
       },
       conversions: {
+        where: { timestamp: { gte: startDate } },
         orderBy: { timestamp: "desc" },
         take: 50,
       },
@@ -62,10 +72,13 @@ export async function GET(
   // Agregação de métricas reais dos links desta campanha
   const linkIds = campaign.smartLinks.map((l) => l.id);
 
-  // Busca cliques reais registrados para os links desta campanha
+  // Busca cliques reais registrados para os links desta campanha respeitando a retenção do plano
   const clicks = linkIds.length > 0
     ? await db.click.findMany({
-        where: { smartLinkId: { in: linkIds } },
+        where: {
+          smartLinkId: { in: linkIds },
+          timestamp: { gte: startDate },
+        },
         select: {
           id: true,
           smartLinkId: true,
@@ -119,7 +132,7 @@ export async function GET(
 
   const confirmedCommission = campaign.conversions
     .filter((c) => c.status === "CONFIRMED")
-    .reduce((acc, c) => acc + c.commissionAmount, 0);
+    .reduce((acc, c) => acc + (Number.isFinite(c.commissionAmount) ? Math.max(0, c.commissionAmount) : 0), 0);
 
   return NextResponse.json({
     campaign,
@@ -150,7 +163,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   if (!session?.workspaceId) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
@@ -312,11 +325,11 @@ export async function PATCH(
  * Remove a campanha, desvinculando links e produtos sem apagá-los.
  */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   if (!session?.workspaceId) {
     return NextResponse.json({ error: "Não autorizado" }, { status: 401 });

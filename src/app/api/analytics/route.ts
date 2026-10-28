@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { getAnalyticsDateRange } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
-  const session = await getSession();
+  const session = await getSession(request);
   const workspaceId = session?.workspaceId;
 
   if (!workspaceId) {
     return NextResponse.json({
       period: "30d",
+      retentionDays: 30,
+      effectiveDays: 30,
       totalClicks: 0,
       totalQrScans: 0,
       totalLinks: 0,
@@ -31,36 +34,32 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Resolução do plano atual do workspace (reflete upgrades/downgrades em tempo real)
+  const workspace = await db.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { plan: true },
+  });
+  const currentPlan = workspace?.plan || session.workspacePlan || "FREE";
+
   const { searchParams } = request.nextUrl;
-  const period = searchParams.get("period") || "30d";
+  const rawPeriod = searchParams.get("period");
 
-  // Cálculo da janela temporal
-  let startDate: Date | undefined = undefined;
-  let daysCount = 30;
+  // Cálculo da janela temporal centralizada respeitando o teto de retenção do plano:
+  // FREE: máximo 30 dias (qualquer tentativa de pedir > 30d ou 'all' é truncada para 30d).
+  // CREATOR: máximo 365 dias.
+  const { startDate, maxAllowedDays, effectiveDays, periodLabel } = getAnalyticsDateRange(
+    currentPlan,
+    rawPeriod
+  );
 
-  if (period === "7d") {
-    daysCount = 7;
-    startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  } else if (period === "90d") {
-    daysCount = 90;
-    startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-  } else if (period === "all") {
-    daysCount = 30; // exibe os últimos 30 dias na linha do tempo diária
-    startDate = undefined;
-  } else {
-    // padrão 30d
-    daysCount = 30;
-    startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  }
-
-  // 1. Total de links criados pelo workspace (permanente)
+  // 1. Total de links criados pelo workspace (métrica acumulada permanente)
   const totalLinks = await db.smartLink.count({ where: { workspaceId } });
 
-  // 2. Cliques no período especificado
+  // 2. Cliques no período especificado e permitido (filtro estrito antes da agregação)
   const clicks = await db.click.findMany({
     where: {
       workspaceId,
-      ...(startDate ? { timestamp: { gte: startDate } } : {}),
+      timestamp: { gte: startDate },
     },
     take: 5000,
     orderBy: { timestamp: "desc" },
@@ -81,11 +80,11 @@ export async function GET(request: NextRequest) {
   const totalClicks = clicks.length;
   const totalQrScans = clicks.filter((c) => c.isQrScan).length;
 
-  // 3. Conversões no período
+  // 3. Conversões no período permitido
   const conversions = await db.conversion.findMany({
     where: {
       smartLink: { workspaceId },
-      ...(startDate ? { timestamp: { gte: startDate } } : {}),
+      timestamp: { gte: startDate },
     },
     include: {
       campaign: { select: { id: true, name: true } },
@@ -96,19 +95,19 @@ export async function GET(request: NextRequest) {
   const conversionsCount = conversions.length;
   const confirmedCommission = conversions
     .filter((c) => c.status === "CONFIRMED")
-    .reduce((acc, c) => acc + c.commissionAmount, 0);
+    .reduce((acc, c) => acc + (Number.isFinite(c.commissionAmount) ? Math.max(0, c.commissionAmount) : 0), 0);
   const estimatedCommission = conversions
     .filter((c) => c.status === "ESTIMATED")
-    .reduce((acc, c) => acc + c.commissionAmount, 0);
+    .reduce((acc, c) => acc + (Number.isFinite(c.commissionAmount) ? Math.max(0, c.commissionAmount) : 0), 0);
   const totalCommission = confirmedCommission + estimatedCommission;
 
   // 4. Evolução diária (linha do tempo contínua)
-  // Monta mapa de dias dos últimos daysCount dias
+  // Monta mapa de dias dos últimos effectiveDays dias (máx 30 pontos no gráfico para clareza visual)
   const timelineMap = new Map<string, { label: string; clicks: number; qrScans: number }>();
   const now = new Date();
 
   // Gera todas as datas do período em ordem cronológica crescente
-  const displayDays = Math.min(daysCount, 30); // máx 30 pontos no gráfico para clareza visual
+  const displayDays = Math.min(effectiveDays, 30);
   for (let i = displayDays - 1; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
     const yyyy = d.getFullYear();
@@ -253,7 +252,9 @@ export async function GET(request: NextRequest) {
     .slice(0, 5);
 
   return NextResponse.json({
-    period,
+    period: periodLabel,
+    retentionDays: maxAllowedDays,
+    effectiveDays,
     totalClicks,
     totalQrScans,
     totalLinks,

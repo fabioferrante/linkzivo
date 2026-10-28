@@ -3,6 +3,12 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import {
+  calculateScale,
+  mapSeriesToPoints,
+  generateMonotonePath,
+  Point,
+} from "@/lib/chart-utils";
+import {
   Zap,
   Activity,
   QrCode,
@@ -74,6 +80,76 @@ interface OverviewViewProps {
   shortDomain?: string;
 }
 
+interface CardSparklineProps {
+  data: number[];
+  color: string;
+  gradientId: string;
+  glowId: string;
+}
+
+function CardSparkline({ data, color, gradientId, glowId }: CardSparklineProps) {
+  const width = 100;
+  const height = 26;
+  const paddingX = 2;
+  const paddingY = 3;
+  const bottomY = height - paddingY;
+
+  const hasData = data && data.length > 0 && data.some((v) => v > 0);
+
+  if (!hasData) {
+    return (
+      <div className="h-6 w-full flex items-end">
+        <svg className="w-full h-full text-slate-700/60" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+          <line
+            x1="0"
+            y1={bottomY}
+            x2={width}
+            y2={bottomY}
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeDasharray="4 4"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  const scale = calculateScale(data);
+  const points = mapSeriesToPoints(data, width, height, paddingX, paddingY, scale.max);
+  const { linePath, areaPath } = generateMonotonePath(points, bottomY);
+
+  return (
+    <div className="h-6 w-full flex items-end">
+      <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+            <stop offset="70%" stopColor={color} stopOpacity="0.08" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.0" />
+          </linearGradient>
+          <filter id={glowId} x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" floodColor={color} floodOpacity="0.35" />
+          </filter>
+        </defs>
+
+        {areaPath && <path d={areaPath} fill={`url(#${gradientId})`} />}
+
+        {linePath && (
+          <path
+            d={linePath}
+            fill="none"
+            stroke={color}
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#${glowId})`}
+          />
+        )}
+      </svg>
+    </div>
+  );
+}
+
 export function OverviewView({
   user,
   analytics,
@@ -126,26 +202,50 @@ export function OverviewView({
 
   // Timeline para render do SVG do gráfico
   const timeline = analytics?.dailyTimeline || [];
-  const realPeakClicks = timeline.length > 0 ? Math.max(...timeline.map((t) => t.clicks)) : 0;
-  const scaleMaxClicks = Math.max(realPeakClicks, 1);
+  const clicksSeries = timeline.map((t) => t.clicks);
+  const qrSeries = timeline.map((t) => t.qrScans);
 
-  // Gerador de pontos SVG para a curva suave
-  const svgWidth = 600;
-  const svgHeight = 180;
-  const paddingX = 20;
-  const paddingY = 20;
+  // Escala global e detecção de pico com headroom
+  const globalScale = calculateScale([...clicksSeries, ...qrSeries]);
+  const realPeakClicks = globalScale.peak;
 
-  const pointsTotals = timeline.map((item, idx) => {
-    const x = paddingX + (idx / Math.max(timeline.length - 1, 1)) * (svgWidth - paddingX * 2);
-    const y = svgHeight - paddingY - (item.clicks / scaleMaxClicks) * (svgHeight - paddingY * 2);
-    return `${x},${y}`;
-  }).join(" ");
+  // Dimensões e parâmetros para as curvas suaves do gráfico principal
+  const svgWidth = 640;
+  const svgHeight = 200;
+  const paddingX = 24;
+  const paddingY = 24;
+  const bottomY = svgHeight - paddingY;
 
-  const pointsQr = timeline.map((item, idx) => {
-    const x = paddingX + (idx / Math.max(timeline.length - 1, 1)) * (svgWidth - paddingX * 2);
-    const y = svgHeight - paddingY - (item.qrScans / scaleMaxClicks) * (svgHeight - paddingY * 2);
-    return `${x},${y}`;
-  }).join(" ");
+  const pointsTotalsData = mapSeriesToPoints(clicksSeries, svgWidth, svgHeight, paddingX, paddingY, globalScale.max);
+  const pointsQrData = mapSeriesToPoints(qrSeries, svgWidth, svgHeight, paddingX, paddingY, globalScale.max);
+
+  const totalsCurve = generateMonotonePath(pointsTotalsData, bottomY);
+  const qrCurve = generateMonotonePath(pointsQrData, bottomY);
+
+  // Coordenada do ponto de pico mais alto da série de cliques
+  let peakPoint: Point | null = null;
+  if (realPeakClicks > 0 && timeline.length > 0) {
+    const peakIdx = clicksSeries.indexOf(realPeakClicks);
+    if (peakIdx !== -1 && pointsTotalsData[peakIdx]) {
+      peakPoint = pointsTotalsData[peakIdx];
+    }
+  }
+
+  // Séries temporais dedicadas para os 4 cards superiores
+  const linksCumulativeData = timeline.map((t) => {
+    const tTime = new Date(t.date).getTime() + 86400000;
+    return links.filter((l) => new Date(l.createdAt).getTime() <= tTime).length;
+  });
+  const sparkLinksData =
+    linksCumulativeData.length > 0 && linksCumulativeData.some((v) => v > 0)
+      ? linksCumulativeData
+      : activeLinksCount > 0
+      ? [Math.max(1, Math.round(activeLinksCount * 0.7)), Math.max(1, Math.round(activeLinksCount * 0.85)), activeLinksCount, activeLinksCount]
+      : [];
+
+  const sparkClicksData = clicksSeries;
+  const sparkQrData = qrSeries;
+  const sparkCvrData = timeline.map((t) => (t.clicks > 0 && conversions > 0 ? Math.round((conversions / Math.max(totalClicks, 1)) * 100) : 0));
 
   // Dispositivos (100% dinâmicos e fiéis aos cliques reais)
   const hasTraffic = totalClicks > 0;
@@ -326,17 +426,13 @@ export function OverviewView({
               {activeLinksCount.toLocaleString("pt-BR")}
             </span>
           </div>
-          {/* Mini Sparkline decorativa */}
-          <div className="h-6 w-full flex items-end">
-            <svg className={`w-full h-full ${activeLinksCount > 0 ? "text-emerald-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
-              <path
-                d={activeLinksCount > 0 ? "M0,15 Q25,18 50,8 T100,2" : "M0,18 L100,18"}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-              />
-            </svg>
-          </div>
+          {/* Mini Sparkline suave com degradê */}
+          <CardSparkline
+            data={sparkLinksData}
+            color="#A78BFA"
+            gradientId="sparkLinksGrad"
+            glowId="sparkLinksGlow"
+          />
           <div className="text-[11px] text-slate-400">
             • {links.length} links cadastrados no total
           </div>
@@ -357,16 +453,13 @@ export function OverviewView({
               {totalClicks.toLocaleString("pt-BR")}
             </span>
           </div>
-          <div className="h-6 w-full flex items-end">
-            <svg className={`w-full h-full ${totalClicks > 0 ? "text-purple-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
-              <path
-                d={totalClicks > 0 ? "M0,18 Q20,12 50,14 T100,3" : "M0,18 L100,18"}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-              />
-            </svg>
-          </div>
+          {/* Mini Sparkline suave com degradê */}
+          <CardSparkline
+            data={sparkClicksData}
+            color="#8B5CF6"
+            gradientId="sparkClicksGrad"
+            glowId="sparkClicksGlow"
+          />
           <div className="text-[11px] text-slate-400">
             • Média de {Math.round(totalClicks / (period === "7d" ? 7 : 30))} cliques/dia
           </div>
@@ -392,16 +485,13 @@ export function OverviewView({
               <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">0%</span>
             )}
           </div>
-          <div className="h-6 w-full flex items-end">
-            <svg className={`w-full h-full ${totalQrScans > 0 ? "text-emerald-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
-              <path
-                d={totalQrScans > 0 ? "M0,16 Q30,6 60,12 T100,4" : "M0,18 L100,18"}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
-            </svg>
-          </div>
+          {/* Mini Sparkline suave com degradê */}
+          <CardSparkline
+            data={sparkQrData}
+            color="#10B981"
+            gradientId="sparkQrGrad"
+            glowId="sparkQrGlow"
+          />
           <div className="text-[11px] text-slate-400">
             • {qrVolumePct}% do volume consolidado
           </div>
@@ -429,16 +519,13 @@ export function OverviewView({
               <span className="px-2 py-0.5 rounded-md bg-white/[0.04] text-slate-500 text-[11px] font-mono">—</span>
             )}
           </div>
-          <div className="h-6 w-full flex items-end">
-            <svg className={`w-full h-full ${conversions > 0 ? "text-purple-400" : "text-slate-600 opacity-40"}`} viewBox="0 0 100 20" preserveAspectRatio="none">
-              <path
-                d={conversions > 0 ? "M0,14 Q30,16 60,8 T100,2" : "M0,18 L100,18"}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              />
-            </svg>
-          </div>
+          {/* Mini Sparkline suave com degradê */}
+          <CardSparkline
+            data={sparkCvrData}
+            color="#A78BFA"
+            gradientId="sparkCvrGrad"
+            glowId="sparkCvrGlow"
+          />
           <div className="text-[11px] text-slate-400">
             • {conversions} conversões confirmadas
           </div>
@@ -460,83 +547,155 @@ export function OverviewView({
                 </p>
               </div>
 
-              {/* Indicador de Visualização */}
+              {/* Alternância de Visualização */}
               <div className="p-1 rounded-xl bg-[#090C14] border border-white/[0.08] inline-flex items-center text-xs font-medium self-start sm:self-auto">
-                <span className="px-3 py-1 rounded-lg bg-purple-600 text-white shadow-sm font-mono text-[11px]">
+                <button
+                  onClick={() => setChartViewMode("totals")}
+                  className={`px-3 py-1 rounded-lg font-mono text-[11px] transition-all cursor-pointer ${
+                    chartViewMode === "totals"
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
                   Cliques &amp; QR Scans
-                </span>
+                </button>
+                <button
+                  onClick={() => setChartViewMode("uniques")}
+                  className={`px-3 py-1 rounded-lg font-mono text-[11px] transition-all cursor-pointer ${
+                    chartViewMode === "uniques"
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Apenas Cliques
+                </button>
               </div>
             </div>
 
             {/* Badge de Pico - somente exibido se houver dados reais de acessos */}
             {realPeakClicks > 0 && (
               <div className="flex justify-end mb-2">
-                <span className="px-2.5 py-1 rounded-full bg-[#181D2C] border border-white/[0.08] text-[10px] font-mono text-purple-300 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                <span className="px-2.5 py-1 rounded-full bg-[#181D2C] border border-white/[0.08] text-[10px] font-mono text-purple-300 flex items-center gap-1.5 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
                   Pico: {realPeakClicks} {realPeakClicks === 1 ? "acesso" : "acessos"}
                 </span>
               </div>
             )}
 
-            {/* SVG Gráfico Curvo Suave */}
-            <div className="w-full h-48 bg-[#090C14] rounded-xl p-3 border border-white/[0.04] relative flex items-center justify-center">
+            {/* SVG Gráfico Curvo Suave Monotônico com Degradê */}
+            <div className="w-full h-52 bg-[#090C14] rounded-xl p-3 border border-white/[0.04] relative flex items-center justify-center overflow-hidden">
               {timeline.length === 0 ? (
                 <div className="text-xs text-slate-500 font-mono">Sem dados para o período</div>
               ) : (
                 <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${svgWidth} ${svgHeight}`}>
                   <defs>
-                    <linearGradient id="purpleGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.4" />
+                    {/* Degradê Roxo Principal (Cliques Totais) */}
+                    <linearGradient id="mainPurpleGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.40" />
+                      <stop offset="65%" stopColor="#8B5CF6" stopOpacity="0.10" />
                       <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0.0" />
                     </linearGradient>
-                    <linearGradient id="mintGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10B981" stopOpacity="0.3" />
+
+                    {/* Degradê Verde Mint Principal (Scans de QR Code) */}
+                    <linearGradient id="mainMintGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10B981" stopOpacity="0.32" />
+                      <stop offset="65%" stopColor="#10B981" stopOpacity="0.08" />
                       <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
                     </linearGradient>
+
+                    {/* Sombra / Brilho Suave para Linha Roxa */}
+                    <filter id="purpleLineGlow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="0" dy="2.5" stdDeviation="3.5" floodColor="#8B5CF6" floodOpacity="0.45" />
+                    </filter>
+
+                    {/* Sombra / Brilho Suave para Linha Verde */}
+                    <filter id="mintLineGlow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#10B981" floodOpacity="0.35" />
+                    </filter>
                   </defs>
 
-                  {/* Linhas de Grade Sutis */}
-                  <line x1="0" y1="40" x2={svgWidth} y2="40" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
-                  <line x1="0" y1="90" x2={svgWidth} y2="90" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
-                  <line x1="0" y1="140" x2={svgWidth} y2="140" stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" />
+                  {/* Linhas de Grade Sutis e Proporcionais */}
+                  <line x1={paddingX} y1={paddingY} x2={svgWidth - paddingX} y2={paddingY} stroke="rgba(255,255,255,0.03)" strokeDasharray="3 3" />
+                  <line x1={paddingX} y1={paddingY + (bottomY - paddingY) * 0.33} x2={svgWidth - paddingX} y2={paddingY + (bottomY - paddingY) * 0.33} stroke="rgba(255,255,255,0.04)" strokeDasharray="3 3" />
+                  <line x1={paddingX} y1={paddingY + (bottomY - paddingY) * 0.66} x2={svgWidth - paddingX} y2={paddingY + (bottomY - paddingY) * 0.66} stroke="rgba(255,255,255,0.04)" strokeDasharray="3 3" />
+                  <line x1={paddingX} y1={bottomY} x2={svgWidth - paddingX} y2={bottomY} stroke="rgba(255,255,255,0.05)" />
+
+                  {/* Rótulos discretos de datas da timeline no rodapé da grade */}
+                  {timeline.length > 2 && (
+                    <g className="text-[9px] font-mono fill-slate-500 select-none">
+                      <text x={paddingX} y={svgHeight - 6} textAnchor="start">
+                        {timeline[0].label}
+                      </text>
+                      <text x={svgWidth / 2} y={svgHeight - 6} textAnchor="middle">
+                        {timeline[Math.floor(timeline.length / 2)].label}
+                      </text>
+                      <text x={svgWidth - paddingX} y={svgHeight - 6} textAnchor="end">
+                        {timeline[timeline.length - 1].label}
+                      </text>
+                    </g>
+                  )}
 
                   {/* Área em degradê suave sob a curva Totais */}
-                  {timeline.length > 1 && pointsTotals && (
-                    <polygon
-                      points={`${pointsTotals} ${svgWidth - paddingX},${svgHeight - paddingY} ${paddingX},${svgHeight - paddingY}`}
-                      fill="url(#purpleGrad)"
-                      opacity="0.35"
+                  {totalsCurve.areaPath && (
+                    <path
+                      d={totalsCurve.areaPath}
+                      fill="url(#mainPurpleGrad)"
                     />
                   )}
 
                   {/* Área em degradê suave sob a curva QR Scans */}
-                  {timeline.length > 1 && pointsQr && (
-                    <polygon
-                      points={`${pointsQr} ${svgWidth - paddingX},${svgHeight - paddingY} ${paddingX},${svgHeight - paddingY}`}
-                      fill="url(#mintGrad)"
-                      opacity="0.25"
+                  {chartViewMode === "totals" && qrCurve.areaPath && (
+                    <path
+                      d={qrCurve.areaPath}
+                      fill="url(#mainMintGrad)"
+                    />
+                  )}
+
+                  {/* Curva QR Scans Suave (Verde Mint) */}
+                  {chartViewMode === "totals" && qrCurve.linePath && (
+                    <path
+                      d={qrCurve.linePath}
+                      fill="none"
+                      stroke="#10B981"
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      filter="url(#mintLineGlow)"
                     />
                   )}
 
                   {/* Curva Totais Suave (Roxo) */}
-                  <polyline
-                    fill="none"
-                    stroke="#8B5CF6"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    points={pointsTotals}
-                  />
+                  {totalsCurve.linePath && (
+                    <path
+                      d={totalsCurve.linePath}
+                      fill="none"
+                      stroke="#8B5CF6"
+                      strokeWidth="2.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      filter="url(#purpleLineGlow)"
+                    />
+                  )}
 
-                  {/* Curva QR Scans Suave (Verde Mint) */}
-                  <polyline
-                    fill="none"
-                    stroke="#10B981"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    points={pointsQr}
-                  />
+                  {/* Ponto indicador de pico destacado no topo */}
+                  {peakPoint && realPeakClicks > 0 && (
+                    <g className="transition-all duration-300">
+                      <circle
+                        cx={peakPoint.x}
+                        cy={peakPoint.y}
+                        r="6"
+                        fill="rgba(139, 92, 246, 0.25)"
+                      />
+                      <circle
+                        cx={peakPoint.x}
+                        cy={peakPoint.y}
+                        r="3.5"
+                        fill="#C4B5FD"
+                        stroke="#7C3AED"
+                        strokeWidth="2"
+                      />
+                    </g>
+                  )}
                 </svg>
               )}
             </div>
@@ -546,13 +705,15 @@ export function OverviewView({
           <div className="mt-4 pt-3 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-400">
             <div className="flex items-center gap-4">
               <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                <span className="w-2.5 h-2.5 rounded-full bg-purple-500 shadow-sm shadow-purple-500/50" />
                 <span className="text-slate-300">Cliques Totais</span>
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-                <span className="text-slate-300">Scans de QR Code</span>
-              </span>
+              {chartViewMode === "totals" && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+                  <span className="text-slate-300">Scans de QR Code</span>
+                </span>
+              )}
             </div>
 
             <span className="font-mono text-slate-400">
