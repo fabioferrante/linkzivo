@@ -84,6 +84,14 @@ export async function GET(
 
   // Checagem de expiração se configurada
   if (link.expiresAt && new Date() > link.expiresAt) {
+    // Atualização condicional assíncrona para EXPIRED (não-bloqueante e segura contra sobrescrita)
+    db.smartLink
+      .updateMany({
+        where: { id: link.id, status: "ACTIVE", expiresAt: { lte: new Date() } },
+        data: { status: "EXPIRED", pauseReason: null, previousStatus: null },
+      })
+      .catch(() => {});
+
     if (link.fallbackUrl) {
       return NextResponse.redirect(link.fallbackUrl, 302);
     }

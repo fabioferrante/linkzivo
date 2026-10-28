@@ -120,7 +120,9 @@ export function Sidebar({
                 />
               </div>
               <span className="px-1.5 py-0.5 rounded bg-purple-500/20 text-[#A78BFA] text-[10px] font-bold tracking-wider uppercase border border-purple-500/30">
-                {user?.workspacePlan || "PRO"}
+                {user?.workspacePlan && ["FREE", "CREATOR", "PRO", "AGENCY"].includes(user.workspacePlan.toUpperCase())
+                  ? user.workspacePlan.toUpperCase()
+                  : "FREE"}
               </span>
             </div>
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { validateAndSanitizeUrl } from "@/lib/security";
+import { checkAndLockWorkspaceQuota } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +10,11 @@ export const dynamic = "force-dynamic";
  * GET /api/links/[id]
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   // Exige autenticação válida antes de consultar ou revelar existência do link
   if (!session) {
@@ -47,7 +48,7 @@ export async function GET(
 
 /**
  * PATCH /api/links/[id]
- * Edita o destino mantendo slug e QR Code inalterados.
+ * Edita propriedades, status, cota atômica e expiração.
  */
 export async function PATCH(
   request: NextRequest,
@@ -55,7 +56,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const session = await getSession();
+    const session = await getSession(request);
 
     // Exige autenticação válida antes de consultar ou revelar existência do link
     if (!session) {
@@ -64,6 +65,7 @@ export async function PATCH(
 
     const existingLink = await db.smartLink.findUnique({
       where: { id },
+      include: { workspace: { select: { id: true, plan: true } } },
     });
 
     if (!existingLink) {
@@ -80,6 +82,7 @@ export async function PATCH(
       title,
       status,
       fallbackUrl,
+      expiresAt,
       campaignId,
       productId,
       offerId,
@@ -91,6 +94,25 @@ export async function PATCH(
       utmContent,
     } = body;
 
+    const workspacePlan = existingLink.workspace.plan;
+
+    // 1. Validação de recursos exclusivos do plano Creator
+    if (
+      (expiresAt !== undefined && expiresAt !== null) ||
+      (fallbackUrl !== undefined && fallbackUrl !== null && String(fallbackUrl).trim())
+    ) {
+      if (workspacePlan === "FREE") {
+        return NextResponse.json(
+          {
+            error: "Expiração agendada e URL de fallback são recursos exclusivos do plano Creator.",
+            code: "FEATURE_NOT_AVAILABLE_IN_PLAN",
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    // 2. Validação e sanitização da URL de destino se alterada
     let updatedDestination = existingLink.destinationUrl;
     let urlChanged = false;
 
@@ -106,6 +128,41 @@ export async function PATCH(
       urlChanged = true;
     }
 
+    // 3. Validação e sanitização de expiresAt
+    let updatedExpiresAt: Date | null = existingLink.expiresAt;
+    if (expiresAt !== undefined) {
+      if (expiresAt === null) {
+        updatedExpiresAt = null;
+      } else {
+        const parsedDate = new Date(expiresAt);
+        if (isNaN(parsedDate.getTime()) || parsedDate <= new Date()) {
+          return NextResponse.json(
+            { error: "A data de expiração agendada deve ser uma data futura válida." },
+            { status: 400 }
+          );
+        }
+        updatedExpiresAt = parsedDate;
+      }
+    }
+
+    // 4. Validação e sanitização de fallbackUrl
+    let updatedFallbackUrl: string | null = existingLink.fallbackUrl;
+    if (fallbackUrl !== undefined) {
+      if (fallbackUrl === null || String(fallbackUrl).trim() === "") {
+        updatedFallbackUrl = null;
+      } else {
+        const fallbackValidation = validateAndSanitizeUrl(fallbackUrl);
+        if (!fallbackValidation.isValid || !fallbackValidation.sanitizedUrl) {
+          return NextResponse.json(
+            { error: fallbackValidation.error || "URL de fallback informada é inválida ou insegura." },
+            { status: 400 }
+          );
+        }
+        updatedFallbackUrl = fallbackValidation.sanitizedUrl;
+      }
+    }
+
+    // 5. Validação de Slug customizado se alterado
     let updatedSlug = existingLink.slug;
     if (rawSlug && rawSlug.trim()) {
       const cleanSlug = rawSlug.trim().toLowerCase();
@@ -136,14 +193,59 @@ export async function PATCH(
       }
     }
 
-    if (status && !["ACTIVE", "PAUSED", "EXPIRED", "SUSPENDED"].includes(status)) {
+    // 6. Validação de status permitido
+    if (status && !["ACTIVE", "PAUSED", "ARCHIVED", "SUSPENDED", "EXPIRED"].includes(status)) {
       return NextResponse.json(
-        { error: "Status inválido. Use ACTIVE ou PAUSED." },
+        { error: "Status inválido. Use ACTIVE, PAUSED ou ARCHIVED." },
         { status: 400 }
       );
     }
 
-    // Se campaignId fornecido, valida propriedade no workspace
+    const targetStatus = status || existingLink.status;
+
+    // 7. Reativação de link expirado exige nova data futura válida
+    const now = new Date();
+    const isCurrentlyExpired = existingLink.expiresAt && existingLink.expiresAt <= now;
+    if (isCurrentlyExpired && (targetStatus === "ACTIVE" || targetStatus === "PAUSED")) {
+      const willBeFuture = updatedExpiresAt && updatedExpiresAt > now;
+      if (!willBeFuture && updatedExpiresAt !== null) {
+        return NextResponse.json(
+          { error: "Para reativar um link expirado, é obrigatório definir uma nova data de expiração futura válida ou remover a data." },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 8. Validação de ocupação de vaga e determinação de novo consumo
+    const currentConsumesSlot =
+      (existingLink.status === "ACTIVE" ||
+        (existingLink.status === "PAUSED" && existingLink.pauseReason !== "DOWNGRADE")) &&
+      (!existingLink.expiresAt || existingLink.expiresAt > now);
+
+    const targetConsumesSlot =
+      (targetStatus === "ACTIVE" || targetStatus === "PAUSED") &&
+      (!updatedExpiresAt || updatedExpiresAt > now);
+
+    const requiresNewSlot = !currentConsumesSlot && targetConsumesSlot;
+
+    // 9. Resolução de pauseReason e previousStatus
+    let updatedPauseReason = existingLink.pauseReason;
+    let updatedPreviousStatus = existingLink.previousStatus;
+
+    if (status) {
+      if (status === "ACTIVE") {
+        updatedPauseReason = null;
+        updatedPreviousStatus = null;
+      } else if (status === "PAUSED") {
+        updatedPauseReason = "USER";
+        updatedPreviousStatus = null;
+      } else if (status === "ARCHIVED") {
+        updatedPauseReason = null;
+        updatedPreviousStatus = null;
+      }
+    }
+
+    // 10. Validação de campanha/produto se fornecidos
     if (campaignId) {
       const camp = await db.campaign.findFirst({
         where: { id: campaignId, workspaceId: existingLink.workspaceId },
@@ -157,7 +259,6 @@ export async function PATCH(
       }
     }
 
-    // Se productId fornecido, valida propriedade no workspace
     if (productId) {
       const prod = await db.product.findFirst({
         where: { id: productId, workspaceId: existingLink.workspaceId },
@@ -171,8 +272,23 @@ export async function PATCH(
       }
     }
 
-    // Executa update e grava histórico se a URL mudou
-    const updated = await db.$transaction(async (tx) => {
+    // 11. Transação atômica com Lock FOR UPDATE (se necessitar de vaga) e persistência
+    const txResult = await db.$transaction(async (tx) => {
+      if (requiresNewSlot) {
+        const quotaCheck = await checkAndLockWorkspaceQuota(existingLink.workspaceId, tx);
+        if (!quotaCheck.allowed) {
+          return {
+            status: 403,
+            body: {
+              error: quotaCheck.error,
+              code: quotaCheck.code,
+              currentCount: quotaCheck.currentCount,
+              maxSlots: quotaCheck.maxSlots,
+            },
+          };
+        }
+      }
+
       if (urlChanged) {
         await tx.linkHistory.create({
           data: {
@@ -184,14 +300,17 @@ export async function PATCH(
         });
       }
 
-      return tx.smartLink.update({
+      const updated = await tx.smartLink.update({
         where: { id },
         data: {
           slug: updatedSlug,
           destinationUrl: updatedDestination,
           title: title !== undefined ? title : existingLink.title,
-          status: status || existingLink.status,
-          fallbackUrl: fallbackUrl !== undefined ? fallbackUrl : existingLink.fallbackUrl,
+          status: targetStatus,
+          pauseReason: updatedPauseReason,
+          previousStatus: updatedPreviousStatus,
+          fallbackUrl: updatedFallbackUrl,
+          expiresAt: updatedExpiresAt,
           campaignId: campaignId !== undefined ? (campaignId || null) : existingLink.campaignId,
           productId: productId !== undefined ? (productId || null) : existingLink.productId,
           offerId: offerId !== undefined ? (offerId || null) : existingLink.offerId,
@@ -208,9 +327,14 @@ export async function PATCH(
           campaign: { select: { id: true, name: true } },
         },
       });
+
+      return {
+        status: 200,
+        body: { success: true, link: updated },
+      };
     });
 
-    return NextResponse.json({ success: true, link: updated });
+    return NextResponse.json(txResult.body, { status: txResult.status });
   } catch (err: unknown) {
     console.error("[Update Link Error]", err);
     return NextResponse.json(
@@ -224,11 +348,11 @@ export async function PATCH(
  * DELETE /api/links/[id]
  */
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const session = await getSession();
+  const session = await getSession(request);
 
   // Exige autenticação válida antes de consultar ou revelar existência do link
   if (!session) {

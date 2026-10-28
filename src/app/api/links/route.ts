@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { validateAndSanitizeUrl, isValidCustomSlug } from "@/lib/security";
 import { generateUniqueSlug } from "@/lib/slug";
 import { generateQrCodeDataUrl } from "@/lib/qrcode";
+import { checkAndLockWorkspaceQuota } from "@/lib/plans";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +12,8 @@ export const dynamic = "force-dynamic";
  * GET /api/links
  * Retorna todos os links do workspace ativo.
  */
-export async function GET() {
-  const session = await getSession();
+export async function GET(request: NextRequest) {
+  const session = await getSession(request);
 
   // Para permitir uso do encurtador público anônimo sem login obrigatório:
   // Se logado, filtra pelo workspace do usuário. Se não logado, retorna vazio ou links públicos.
@@ -40,7 +41,7 @@ export async function GET() {
 
 /**
  * POST /api/links
- * Cria um novo Smart Link (modo rápido ou avançado).
+ * Cria um novo Smart Link (modo rápido ou avançado), com verificação atômica de cota e lock FOR UPDATE.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -49,6 +50,8 @@ export async function POST(request: NextRequest) {
       url,
       customSlug,
       title,
+      expiresAt,
+      fallbackUrl,
       productId,
       offerId,
       campaignId,
@@ -99,7 +102,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. Obtenção do workspace do usuário autenticado (ou workspace demo padrão)
-    const session = await getSession();
+    const session = await getSession(request);
     let workspaceId = session?.workspaceId;
     let creatorId = session?.id;
 
@@ -155,7 +158,7 @@ export async function POST(request: NextRequest) {
       creatorId = undefined;
     }
 
-    // 4. Criação atômica do SmartLink e do seu QR Code associado
+    // 4. Preparação de URLs e QR Code
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
     const shortUrl = `${appUrl}/${slug}`;
     const qrTargetUrl = `${appUrl}/${slug}?src=qr`;
@@ -164,46 +167,118 @@ export async function POST(request: NextRequest) {
       bgColor: "#FFFFFF",
     });
 
-    const smartLink = await db.smartLink.create({
-      data: {
-        workspaceId,
-        creatorId,
-        slug,
-        title: title?.trim() || new URL(sanitizedUrl).hostname,
-        destinationUrl: sanitizedUrl,
-        productId: productId || null,
-        offerId: offerId || null,
-        campaignId: campaignId || null,
-        channelId: channelId || null,
-        utmSource: utmSource || null,
-        utmMedium: utmMedium || null,
-        utmCampaign: utmCampaign || null,
-        utmTerm: utmTerm || null,
-        utmContent: utmContent || null,
-        qrCode: {
-          create: {
-            fgColor: "#151724",
-            bgColor: "#FFFFFF",
+    // 5. Transação atômica: Lock exclusivo no Workspace, validação de Cota e Criação
+    const txResult = await db.$transaction(async (tx) => {
+      // 5.1 Adquire lock exclusivo (SELECT FOR UPDATE) e valida cota
+      const quotaCheck = await checkAndLockWorkspaceQuota(workspaceId, tx);
+      if (!quotaCheck.allowed) {
+        return {
+          status: 403,
+          body: {
+            error: quotaCheck.error,
+            code: quotaCheck.code,
+            currentCount: quotaCheck.currentCount,
+            maxSlots: quotaCheck.maxSlots,
+          },
+        };
+      }
+
+      const workspacePlan = quotaCheck.plan;
+
+      // 5.2 Validação de recursos exclusivos do plano Creator
+      if ((expiresAt !== undefined && expiresAt !== null) || (fallbackUrl !== undefined && fallbackUrl !== null && String(fallbackUrl).trim())) {
+        if (workspacePlan === "FREE") {
+          return {
+            status: 403,
+            body: {
+              error: "Expiração agendada e URL de fallback são recursos exclusivos do plano Creator.",
+              code: "FEATURE_NOT_AVAILABLE_IN_PLAN",
+            },
+          };
+        }
+      }
+
+      // 5.3 Validação e sanitização de expiresAt
+      let sanitizedExpiresAt: Date | null = null;
+      if (expiresAt) {
+        const parsedDate = new Date(expiresAt);
+        if (isNaN(parsedDate.getTime()) || parsedDate <= new Date()) {
+          return {
+            status: 400,
+            body: {
+              error: "A data de expiração agendada deve ser uma data futura válida.",
+              code: "INVALID_EXPIRATION_DATE",
+            },
+          };
+        }
+        sanitizedExpiresAt = parsedDate;
+      }
+
+      // 5.4 Validação e sanitização de fallbackUrl contra SSRF
+      let sanitizedFallbackUrl: string | null = null;
+      if (fallbackUrl && typeof fallbackUrl === "string" && fallbackUrl.trim()) {
+        const fallbackValidation = validateAndSanitizeUrl(fallbackUrl);
+        if (!fallbackValidation.isValid || !fallbackValidation.sanitizedUrl) {
+          return {
+            status: 400,
+            body: {
+              error: fallbackValidation.error || "URL de fallback informada é inválida ou insegura.",
+              code: "INVALID_FALLBACK_URL",
+            },
+          };
+        }
+        sanitizedFallbackUrl = fallbackValidation.sanitizedUrl;
+      }
+
+      // 5.5 Inserção do SmartLink sob o lock
+      const smartLink = await tx.smartLink.create({
+        data: {
+          workspaceId,
+          creatorId,
+          slug,
+          title: title?.trim() || new URL(sanitizedUrl).hostname,
+          destinationUrl: sanitizedUrl,
+          fallbackUrl: sanitizedFallbackUrl,
+          expiresAt: sanitizedExpiresAt,
+          status: "ACTIVE",
+          pauseReason: null,
+          previousStatus: null,
+          productId: productId || null,
+          offerId: offerId || null,
+          campaignId: campaignId || null,
+          channelId: channelId || null,
+          utmSource: utmSource || null,
+          utmMedium: utmMedium || null,
+          utmCampaign: utmCampaign || null,
+          utmTerm: utmTerm || null,
+          utmContent: utmContent || null,
+          qrCode: {
+            create: {
+              fgColor: "#151724",
+              bgColor: "#FFFFFF",
+            },
           },
         },
-      },
-      include: {
-        qrCode: true,
-      },
+        include: {
+          qrCode: true,
+        },
+      });
+
+      return {
+        status: 201,
+        body: {
+          success: true,
+          link: smartLink,
+          shortUrl,
+          qrDataUrl,
+        },
+      };
     });
 
-    return NextResponse.json(
-      {
-        success: true,
-        link: smartLink,
-        shortUrl,
-        qrDataUrl,
-      },
-      { status: 201 }
-    );
+    return NextResponse.json(txResult.body, { status: txResult.status });
   } catch (err: unknown) {
     console.error("[Create Link Error]", err);
-    if (err && typeof err === "object" && "code" in err && (err as any).code === "P2002") {
+    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "P2002") {
       return NextResponse.json(
         { error: "Este slug já está em uso. Por favor, escolha outro." },
         { status: 409 }
@@ -215,3 +290,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

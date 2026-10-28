@@ -162,7 +162,9 @@ model SmartLink {
   // Flags e regras
   isSmartRouting  Boolean   @default(false)
   fallbackUrl     String?
-  status          String    @default("ACTIVE") // ACTIVE, PAUSED, SUSPENDED, EXPIRED
+  status          String    @default("ACTIVE") // ACTIVE, PAUSED, ARCHIVED, EXPIRED, SUSPENDED
+  pauseReason     String?   // USER, DOWNGRADE
+  previousStatus  String?   // ACTIVE, PAUSED
   expiresAt       DateTime?
 
   // Métricas agregadas cacheadas

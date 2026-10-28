@@ -393,7 +393,7 @@ async function runOidcTestSuite() {
       assert(resolutionNewUser.success === true, "resolveGoogleIdentity cria novo usuário com sucesso");
       assert(resolutionNewUser.action === "CREATED", "Ação classificada como CREATED");
       assert(resolutionNewUser.user.email === validEmail, "E-mail retornado coincide com o normalizado");
-      assert(resolutionNewUser.user.workspacePlan === "CREATOR", "Workspace criado com plano padrão CREATOR");
+      assert(resolutionNewUser.user.workspacePlan === "FREE", "Workspace criado com plano padrão FREE");
 
       const createdUser = await db.user.findUnique({
         where: { email: validEmail },

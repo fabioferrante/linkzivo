@@ -419,7 +419,7 @@ export function ShortenerForm({
                   href={
                     currentUser
                       ? "/dashboard?tab=analytics"
-                      : "https://linkzivo-production.up.railway.app/#planos"
+                      : "/#planos"
                   }
                   title={
                     currentUser
