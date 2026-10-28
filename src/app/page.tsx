@@ -396,36 +396,36 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Plano Free */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 sm:p-8 flex flex-col justify-between">
                 <div>
-                  <h3 className="text-sm font-semibold text-white">Free</h3>
+                  <h3 className="text-base font-semibold text-white">Free</h3>
                   <p className="text-xs text-slate-400 mb-4">Uso casual e links pessoais</p>
-                  <div className="text-2xl font-bold text-white mb-6">R$ 0</div>
+                  <div className="text-3xl font-bold text-white mb-6">R$ 0</div>
 
-                  <ul className="space-y-2.5 text-xs text-slate-300">
-                    <li className="flex items-center gap-2">
+                  <ul className="space-y-3 text-xs text-slate-300">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Até 5 links ocupando vaga</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Analytics dos últimos 30 dias</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Encurtamento com slug customizado</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>QR Code Dinâmico em PNG</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Edição de Destino em tempo real</span>
                     </li>
-                    <li className="flex items-center gap-2 text-slate-500">
+                    <li className="flex items-center gap-2.5 text-slate-500">
                       <span className="w-4 h-4 text-slate-600 font-bold text-center leading-4 shrink-0">—</span>
                       <span>Sem expiração ou fallback customizado</span>
                     </li>
@@ -435,159 +435,69 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={() => setAuthModalOpen(true)}
-                  className="mt-6 w-full py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
+                  className="mt-8 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
                 >
                   Criar Conta Grátis
                 </button>
               </div>
 
               {/* Plano Creator (Destaque) */}
-              <div className="rounded-xl border-2 border-[#4267E9] bg-slate-900/90 p-6 flex flex-col justify-between relative shadow-sm">
-                <span className="badge absolute -top-3 left-1/2 -translate-x-1/2 bg-[#4267E9] text-white text-[10px] font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+              <div className="rounded-xl border-2 border-[#4267E9] bg-slate-900/90 p-6 sm:p-8 flex flex-col justify-between relative shadow-lg shadow-[#4267E9]/10">
+                <span className="badge absolute -top-3 left-1/2 -translate-x-1/2 bg-[#4267E9] text-white text-[10px] font-semibold px-3 py-0.5 rounded-full uppercase tracking-wider">
                   Recomendado
                 </span>
 
                 <div>
-                  <h3 className="text-sm font-semibold text-white">Creator &amp; Afiliado</h3>
+                  <h3 className="text-base font-semibold text-white">Creator &amp; Afiliado</h3>
                   <p className="text-xs text-slate-400 mb-4">Para criadores e afiliados ativos</p>
-                  <div className="text-2xl font-bold text-white mb-6">
+                  <div className="text-3xl font-bold text-white mb-6">
                     R$ 49<span className="text-xs text-slate-400 font-normal">/mês</span>
                   </div>
 
-                  <ul className="space-y-2.5 text-xs text-slate-300">
-                    <li className="flex items-center gap-2">
+                  <ul className="space-y-3 text-xs text-slate-300">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Até 1.000 links ocupando vaga</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Analytics e histórico de 365 dias</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Expiração agendada de links</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>URL de fallback anti-queda</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Campanhas, Canais e Link Vault</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>Injeção de sck e UTM Builder</span>
                     </li>
-                    <li className="flex items-center gap-2">
+                    <li className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                       <span>QR Code em PNG e SVG Vetorial</span>
                     </li>
                   </ul>
                 </div>
 
-                <div className="mt-6">
+                <div className="mt-8">
                   <button
                     type="button"
                     onClick={() => setAuthModalOpen(true)}
-                    className="w-full py-2 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-medium rounded-lg shadow-sm transition-colors cursor-pointer"
+                    className="w-full py-2.5 bg-[#4267E9] hover:bg-[#3556D4] text-white text-xs font-semibold rounded-lg shadow-sm transition-colors cursor-pointer"
                   >
                     Começar no Plano Free
                   </button>
-                  <p className="text-[10px] text-slate-500 text-center mt-1.5">
+                  <p className="text-[10px] text-slate-500 text-center mt-2">
                     Novos cadastros iniciam no Free. Ativação via painel.
                   </p>
                 </div>
-              </div>
-
-              {/* Plano Pro */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-sm font-semibold text-white">Pro</h3>
-                    <span className="text-[10px] font-mono text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">Sob Consulta</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-4">Para gestores de tráfego de escala</p>
-                  <div className="text-2xl font-bold text-white mb-6">
-                    R$ 97<span className="text-xs text-slate-400 font-normal">/mês</span>
-                  </div>
-
-                  <ul className="space-y-2.5 text-xs text-slate-300">
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Tudo do Plano Creator</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Até 5.000 links ocupando vaga</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Analytics e histórico de 365 dias</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Suporte para alto volume de tráfego</span>
-                    </li>
-                    <li className="flex items-center gap-2 text-slate-400">
-                      <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
-                      <span>Roteamento avançado (em homologação)</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setAuthModalOpen(true)}
-                  className="mt-6 w-full py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
-                >
-                  Consultar Disponibilidade
-                </button>
-              </div>
-
-              {/* Plano Agency */}
-              <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="text-sm font-semibold text-white">Agency</h3>
-                    <span className="text-[10px] font-mono text-purple-400 bg-purple-400/10 px-1.5 py-0.5 rounded">Sob Consulta</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-4">Para agências e operações multi-equipe</p>
-                  <div className="text-2xl font-bold text-white mb-6">
-                    R$ 249<span className="text-xs text-slate-400 font-normal">/mês</span>
-                  </div>
-
-                  <ul className="space-y-2.5 text-xs text-slate-300">
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Tudo do Plano Pro</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Até 50.000 links ocupando vaga</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Analytics estendido de 730 dias</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>Multi-usuários e workspaces</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span>SLA de atendimento dedicado</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setAuthModalOpen(true)}
-                  className="mt-6 w-full py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium rounded-lg transition-colors cursor-pointer"
-                >
-                  Falar com Atendimento
-                </button>
               </div>
             </div>
           </div>
