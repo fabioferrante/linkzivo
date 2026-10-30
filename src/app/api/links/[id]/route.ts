@@ -86,6 +86,7 @@ export async function PATCH(
       campaignId,
       productId,
       offerId,
+      channelId,
       slug: rawSlug,
       utmSource,
       utmMedium,
@@ -272,6 +273,19 @@ export async function PATCH(
       }
     }
 
+    if (channelId) {
+      const ch = await db.channel.findFirst({
+        where: { id: channelId, workspaceId: existingLink.workspaceId },
+        select: { id: true },
+      });
+      if (!ch) {
+        return NextResponse.json(
+          { error: "Canal informado não pertence ao mesmo workspace." },
+          { status: 400 }
+        );
+      }
+    }
+
     // 11. Transação atômica com Lock FOR UPDATE (se necessitar de vaga) e persistência
     const txResult = await db.$transaction(async (tx) => {
       if (requiresNewSlot) {
@@ -314,6 +328,7 @@ export async function PATCH(
           campaignId: campaignId !== undefined ? (campaignId || null) : existingLink.campaignId,
           productId: productId !== undefined ? (productId || null) : existingLink.productId,
           offerId: offerId !== undefined ? (offerId || null) : existingLink.offerId,
+          channelId: channelId !== undefined ? (channelId || null) : existingLink.channelId,
           utmSource: utmSource !== undefined ? (utmSource || null) : existingLink.utmSource,
           utmMedium: utmMedium !== undefined ? (utmMedium || null) : existingLink.utmMedium,
           utmCampaign: utmCampaign !== undefined ? (utmCampaign || null) : existingLink.utmCampaign,
@@ -325,6 +340,7 @@ export async function PATCH(
           product: { select: { id: true, name: true } },
           offer: { select: { id: true, name: true, affiliateUrl: true } },
           campaign: { select: { id: true, name: true } },
+          channel: { select: { id: true, name: true, slug: true, icon: true, color: true } },
         },
       });
 
@@ -372,3 +388,5 @@ export async function DELETE(
 
   return NextResponse.json({ success: true });
 }
+
+export { PATCH as PUT };

@@ -31,6 +31,7 @@ import { CampaignsView, CampaignItem } from "@/components/dashboard/CampaignsVie
 import { ProductsView, ProductItem } from "@/components/dashboard/ProductsView";
 import { AnalyticsView } from "@/components/dashboard/AnalyticsView";
 import { ConversionsView } from "@/components/dashboard/ConversionsView";
+import { ChannelsView } from "@/components/dashboard/ChannelsView";
 import { QrCodeModal } from "@/components/dashboard/qr-code-modal";
 
 export interface LinkHistoryItem {
@@ -102,6 +103,7 @@ function DashboardContent() {
       tabParam === "analytics" ||
       tabParam === "links" ||
       tabParam === "products" ||
+      tabParam === "channels" ||
       tabParam === "conversions"
     ) {
       return tabParam;
@@ -119,6 +121,7 @@ function DashboardContent() {
       tabParam === "analytics" ||
       tabParam === "links" ||
       tabParam === "products" ||
+      tabParam === "channels" ||
       tabParam === "conversions" ||
       tabParam === "overview"
     ) {
@@ -803,7 +806,9 @@ function DashboardContent() {
     links: "Meus Links",
     campaigns: "Campanhas",
     products: "Produtos & Ofertas",
+    channels: "Canais de Divulgação",
     analytics: "Estatísticas & Analytics",
+    conversions: "Extrato de Conversões",
   };
 
   const domain = typeof window !== "undefined" ? window.location.host : "linkzivo.com";
@@ -900,6 +905,13 @@ function DashboardContent() {
               onToggleStatus={handleToggleProductStatus}
               onDeleteProduct={handleDeleteProduct}
               actionLoading={lifecycleActionLoading}
+            />
+          )}
+
+          {activeTab === "channels" && (
+            <ChannelsView
+              shortDomain={domain}
+              onNavigateToLinks={() => handleTabChange("links")}
             />
           )}
 

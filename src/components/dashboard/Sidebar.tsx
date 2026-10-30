@@ -14,9 +14,10 @@ import {
   ChevronRight,
   ChevronLeft,
   MoreVertical,
+  Radio,
 } from "lucide-react";
 
-export type DashboardTab = "overview" | "links" | "campaigns" | "products" | "analytics" | "conversions";
+export type DashboardTab = "overview" | "links" | "campaigns" | "products" | "channels" | "analytics" | "conversions";
 
 interface SidebarProps {
   activeTab: DashboardTab;
@@ -73,6 +74,12 @@ export function Sidebar({
       id: "products" as const,
       label: "Produtos & Ofertas",
       icon: ShoppingBag,
+      badge: null,
+    },
+    {
+      id: "channels" as const,
+      label: "Canais",
+      icon: Radio,
       badge: null,
     },
     {
