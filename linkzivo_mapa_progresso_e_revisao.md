@@ -2,16 +2,16 @@
 
 **Data da última auditoria:** 30 de Outubro de 2026  
 **Ambiente de Produção Homologado:** [https://linkzivo-production.up.railway.app](https://linkzivo-production.up.railway.app)  
-**Deployment Ativo:** `ec3e69f1-d717-4499-aa70-68b1af680232` (Commit `862a9ac` / `1182ca2`)  
+**Deployment Ativo:** `81f43e6f-0abf-48be-8a5b-944464ec5463` (Commit `cc29485`)  
 **Status Operacional:** ● Online (Saudável)
 
 ---
 
 ## 1. Visão Geral de Maturidade do Produto
 
-- **Motor de Negócio & Backend:** **~97% concluído**
-- **Front-end & Painel do Usuário:** **~88% concluído**
-- **Testes Automatizados (Baterias Ativas):** **~410 asserções automatizadas com 100% de aprovação**
+- **Motor de Negócio & Backend:** **~99% concluído**
+- **Front-end & Painel do Usuário:** **~95% concluído**
+- **Testes Automatizados (Baterias Ativas):** **~510 asserções automatizadas com 100% de aprovação**
 
 ---
 
@@ -28,7 +28,7 @@
 | **7** | **Segurança & Validação URLs** | Completo | 36 unitários + 9 em produção | Ativo com Proteção SSRF | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
 | **8** | **Planos FREE e CREATOR** | Completo | 30 cotas/lock + 38 de rotas | Ativo (FREE com 5 vagas) | **LÓGICA CONCLUÍDA** *(checkout Stripe pendente)* |
 | **9** | **Produtos, Ofertas e Campanhas**| Completo | 15 testes de ciclo de vida em prod | Ativo na API e Dashboard | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
-| **10**| **Conversões e Postbacks** | Completo | 71 testes (`test_fase_f2_postback.js`) | Endpoint Ativo e Protegido | **MOTOR HOMOLOGADO** *(tela de extrato pendente)* |
+| **10**| **Conversões, Postbacks & Extrato** | Completo | 71 postbacks + 46 locais + 54 em produção (`test_online_production_conversions.js`) | Extrato e Auditoria Ativos com Sanitização e Anti-IDOR | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
 | **11**| **Google OIDC** | Completo | 64 testes (`test_oidc_flow.js`) | 503 Controlado (Falta segredos) | **TESTADO LOCALMENTE / AGUARDA CREDENCIAIS REAIS** |
 
 ---
@@ -64,11 +64,23 @@
   - `execution/test_advanced_qrcode.js`: 25/25 asserções locais aprovadas com decodificação real de todos os estilos, com e sem logotipo.
   - `execution/test_online_production_qr.js`: 26/26 asserções aprovadas ao vivo no container da Railway (`ec3e69f1-d717-4499-aa70-68b1af680232`), comprovando decodificação real dos arquivos PNG e SVG baixados da produção, redirecionamento 302 dinâmico preservado e deduplicação atômica concorrente de scans via `QrScanLock` (`qrScanCount: 1`, `clickCount: 2`).
 
+
+### Etapa 3 — Extrato de Conversões, Auditoria de Postbacks e Isolamento Multi-Tenant (Commit `cc29485`)
+- **Implementação:**
+  - **Isolamento Atômico Multi-Tenant:** Consulta individual e de listagem filtrando simultaneamente por `id` da conversão e pelo `workspaceId` do Smart Link relacionado na própria cláusula SQL/Prisma (`where: { id, smartLink: { workspaceId } }`), retornando HTTP 404 em caso de IDOR.
+  - **Sanitização Recursiva de Segredos:** Função `sanitizeConversionPayload` varre e mascara tokens, secrets, senhas, chaves de API e assinaturas (`hottok`, `api_token`, `webhook_secret`, `password`, `auth`) com `[PROTEGIDO POR SEGURANÇA]`, preservando intactos dados úteis de negócio (comprador, produto, valores e moedas).
+  - **Sumário Financeiro Estrito:** Agrupamento por status garantindo que `CONFIRMED` é somado em vendas e comissões confirmadas, `REFUNDED` fica isolado em estornos e NUNCA é somado como vendas confirmadas.
+  - **Distinção Conceitual:** Separação entre o Estado Financeiro (`Conversion.status`) e a Auditoria Técnica do Postback (`platform`, `attributionModel`, `attributionTimeSeconds`, `originalEvent`, `notesOrReason`, `sanitizedRawPayload`).
+  - **Interface e Navegação:** Componente `ConversionsView` no dashboard com 4 cards de sumário financeiro, filtros por status, período temporal, busca textual (por ID externo, slug, título ou produto), paginação server-side e modal completo de auditoria técnica.
+- **Validação Automatizada:**
+  - `execution/test_conversions_view.js`: 46/46 asserções aprovadas localmente.
+  - `execution/test_fase_f2_postback.js`: 71/71 asserções aprovadas no motor de postbacks sem regressões.
+  - `execution/test_online_production_conversions.js`: 54/54 asserções aprovadas ao vivo em produção no deployment `81f43e6f-0abf-48be-8a5b-944464ec5463`, incluindo ingestão de webhooks Hotmart e Kiwify, clique real gerado na nuvem, bloqueio IDOR no banco, validação do sumário financeiro e sanitização de payloads.
+
 ---
 
 ## 4. Backlog Restante para Conclusão Definitiva
 
 1. **Credenciais do Google Cloud Console:** Inserção de `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` para homologação ao vivo do OIDC.
 2. **Gateway de Pagamento do Plano CREATOR:** Integração do checkout de assinatura com webhook de upgrade de plano.
-3. **UI Complementar:** Tela de extrato de conversões recebidas e gerenciador visual de canais customizados.
-4. **Customização Visual do QR Code:** Suporte a upload de logotipo central e formatos arredondados.
+3. **Gerenciador Visual de Canais:** Interface customizada para cadastro e vinculação de canais de tráfego.
