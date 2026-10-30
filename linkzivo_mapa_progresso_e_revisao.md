@@ -2,16 +2,16 @@
 
 **Data da última auditoria:** 30 de Outubro de 2026  
 **Ambiente de Produção Homologado:** [https://linkzivo-production.up.railway.app](https://linkzivo-production.up.railway.app)  
-**Deployment Ativo:** `81f43e6f-0abf-48be-8a5b-944464ec5463` (Commit `cc29485`)  
+**Deployment Ativo:** `35ff923d-4c67-4456-93e6-115449c559ea` (Commit `ab145dc` / `97d9f76`)  
 **Status Operacional:** ● Online (Saudável)
 
 ---
 
 ## 1. Visão Geral de Maturidade do Produto
 
-- **Motor de Negócio & Backend:** **~99% concluído**
-- **Front-end & Painel do Usuário:** **~95% concluído**
-- **Testes Automatizados (Baterias Ativas):** **~510 asserções automatizadas com 100% de aprovação**
+- **Motor de Negócio & Backend:** **~99.5% concluído**
+- **Front-end & Painel do Usuário:** **~98% concluído**
+- **Testes Automatizados (Baterias Ativas):** **~587 asserções automatizadas com 100% de aprovação**
 
 ---
 
@@ -29,7 +29,8 @@
 | **8** | **Planos FREE e CREATOR** | Completo | 30 cotas/lock + 38 de rotas | Ativo (FREE com 5 vagas) | **LÓGICA CONCLUÍDA** *(checkout Stripe pendente)* |
 | **9** | **Produtos, Ofertas e Campanhas**| Completo | 15 testes de ciclo de vida em prod | Ativo na API e Dashboard | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
 | **10**| **Conversões, Postbacks & Extrato** | Completo | 71 postbacks + 46 locais + 54 em produção (`test_online_production_conversions.js`) | Extrato e Auditoria Ativos com Sanitização e Anti-IDOR | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
-| **11**| **Google OIDC** | Completo | 64 testes (`test_oidc_flow.js`) | 503 Controlado (Falta segredos) | **TESTADO LOCALMENTE / AGUARDA CREDENCIAIS REAIS** |
+| **11**| **Canais de Divulgação** | Completo | 42 locais + 35 em produção (`test_online_production_channels.js`) | Gerenciador Completo, Vínculo com Smart Links e Trava de Exclusão Ativa | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
+| **12**| **Google OIDC** | Completo | 64 testes (`test_oidc_flow.js`) | 503 Controlado (Falta segredos) | **TESTADO LOCALMENTE / AGUARDA CREDENCIAIS REAIS** |
 
 ---
 
@@ -64,7 +65,6 @@
   - `execution/test_advanced_qrcode.js`: 25/25 asserções locais aprovadas com decodificação real de todos os estilos, com e sem logotipo.
   - `execution/test_online_production_qr.js`: 26/26 asserções aprovadas ao vivo no container da Railway (`ec3e69f1-d717-4499-aa70-68b1af680232`), comprovando decodificação real dos arquivos PNG e SVG baixados da produção, redirecionamento 302 dinâmico preservado e deduplicação atômica concorrente de scans via `QrScanLock` (`qrScanCount: 1`, `clickCount: 2`).
 
-
 ### Etapa 3 — Extrato de Conversões, Auditoria de Postbacks e Isolamento Multi-Tenant (Commit `cc29485`)
 - **Implementação:**
   - **Isolamento Atômico Multi-Tenant:** Consulta individual e de listagem filtrando simultaneamente por `id` da conversão e pelo `workspaceId` do Smart Link relacionado na própria cláusula SQL/Prisma (`where: { id, smartLink: { workspaceId } }`), retornando HTTP 404 em caso de IDOR.
@@ -77,10 +77,21 @@
   - `execution/test_fase_f2_postback.js`: 71/71 asserções aprovadas no motor de postbacks sem regressões.
   - `execution/test_online_production_conversions.js`: 54/54 asserções aprovadas ao vivo em produção no deployment `81f43e6f-0abf-48be-8a5b-944464ec5463`, incluindo ingestão de webhooks Hotmart e Kiwify, clique real gerado na nuvem, bloqueio IDOR no banco, validação do sumário financeiro e sanitização de payloads.
 
+### Etapa 4 — Gerenciamento de Canais de Divulgação e Integridade de Vínculos (Commits `ab145dc` e `97d9f76`)
+- **Implementação:**
+  - **Módulo Dedicado de Canais:** Endpoints RESTful em `/api/channels` (GET, POST) e `/api/channels/[id]` (GET, PUT, DELETE) com isolamento atômico por `workspaceId` em todas as cláusulas do Prisma.
+  - **Prevenção Rigorosa Anti-IDOR:** Acesso, edição e exclusão de canais pertencentes a outros workspaces retornam HTTP 404 de forma indistinguível, sem vazamento de metadados.
+  - **Trava de Integridade Relacional na Exclusão:** Se um canal possuir Smart Links vinculados (`_count.smartLinks > 0`), a exclusão é estritamente bloqueada com HTTP 409 e código `CHANNEL_HAS_ACTIVE_LINKS`, informando a quantidade de links e orientando o usuário a desvinculá-los primeiro, impedindo perda de rastreabilidade ou orfandade de dados.
+  - **Auto-Seed Idempotente:** Inicialização automática e idempotente dos 6 canais padrão do ecossistema de marketing (`Instagram`, `WhatsApp`, `TikTok`, `YouTube`, `Meta Ads`, `Google Ads`) caso o workspace ainda não possua canais cadastrados.
+  - **Integração Bidirecional com Smart Links:** Edição e atualização de links via `PATCH /api/links/[id]` suportam `channelId` (com validação de pertinência de workspace) ou `null` para desvinculação, preservando o histórico de conversão.
+  - **Interface no Padrão Obsidian:** Componente `ChannelsView` com 3 cards de métricas (Total, Customizados, Links Atribuídos), busca dinâmica, listagem em grid com cores temáticas e badges, modal de criação/edição com 8 paletas de cores e 11 ícones, e modal de confirmação de exclusão com alerta de vínculos ativos.
+- **Validação Automatizada:**
+  - `execution/test_channels.js`: 42/42 asserções aprovadas localmente.
+  - `execution/test_online_production_channels.js`: 35/35 asserções aprovadas ao vivo em produção no deployment `35ff923d-4c67-4456-93e6-115449c559ea`.
+
 ---
 
 ## 4. Backlog Restante para Conclusão Definitiva
 
 1. **Credenciais do Google Cloud Console:** Inserção de `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` para homologação ao vivo do OIDC.
 2. **Gateway de Pagamento do Plano CREATOR:** Integração do checkout de assinatura com webhook de upgrade de plano.
-3. **Gerenciador Visual de Canais:** Interface customizada para cadastro e vinculação de canais de tráfego.
