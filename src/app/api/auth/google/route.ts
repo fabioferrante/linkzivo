@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { createOidcChallenge } from "@/lib/oidc";
 import { getSession, isSecureCookie } from "@/lib/auth";
 
@@ -21,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   let targetUserId: string | undefined;
   if (intent === "connect") {
-    const session = await getSession();
+    const session = await getSession(request);
     if (!session) {
       return NextResponse.json(
         { error: "Você precisa estar autenticado para conectar uma conta Google." },
@@ -34,22 +33,12 @@ export async function GET(request: NextRequest) {
   // 1. Cria o desafio OIDC no banco com PKCE (state, nonce, codeVerifier)
   const { challengeId, state, nonce, codeChallenge } = await createOidcChallenge(targetUserId);
 
-  // 2. Define o cookie transitório opaco contendo apenas o challengeId
-  const cookieStore = await cookies();
-  cookieStore.set("linkzivo_oidc_flow", challengeId, {
-    httpOnly: true,
-    secure: isSecureCookie(),
-    sameSite: "lax",
-    path: "/api/auth/google/callback",
-    maxAge: 300, // 5 minutos
-  });
-
-  // 3. Determina a URL base para o callback
+  // 2. Determina a URL base para o callback
   const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
   const baseUrl = rawAppUrl ? new URL(rawAppUrl).origin : new URL(request.url).origin;
   const redirectUri = `${baseUrl}/api/auth/google/callback`;
 
-  // 4. Monta a URL de autorização oficial do Google OIDC
+  // 3. Monta a URL de autorização oficial do Google OIDC
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authUrl.searchParams.set("client_id", clientId);
   authUrl.searchParams.set("redirect_uri", redirectUri);
@@ -61,5 +50,15 @@ export async function GET(request: NextRequest) {
   authUrl.searchParams.set("nonce", nonce);
   authUrl.searchParams.set("prompt", "select_account");
 
-  return NextResponse.redirect(authUrl.toString(), 302);
+  // 4. Retorna redirecionamento definindo o cookie transitório opaco na resposta HTTP
+  const response = NextResponse.redirect(authUrl.toString(), 302);
+  response.cookies.set("linkzivo_oidc_flow", challengeId, {
+    httpOnly: true,
+    secure: isSecureCookie(),
+    sameSite: "lax",
+    path: "/api/auth/google/callback",
+    maxAge: 300, // 5 minutos
+  });
+
+  return response;
 }

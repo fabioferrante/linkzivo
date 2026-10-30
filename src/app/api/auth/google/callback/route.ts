@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import {
   consumeOidcChallenge,
   exchangeGoogleCode,
@@ -19,12 +18,12 @@ export async function GET(request: NextRequest) {
   const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
   const baseUrl = rawAppUrl ? new URL(rawAppUrl).origin : new URL(request.url).origin;
 
-  const cookieStore = await cookies();
-  const challengeId = cookieStore.get("linkzivo_oidc_flow")?.value;
+  const challengeId = request.cookies.get("linkzivo_oidc_flow")?.value;
 
   // Helper para limpar o cookie de fluxo e redirecionar com erro amigável
   const redirectWithError = (errorCode: string) => {
-    cookieStore.set("linkzivo_oidc_flow", "", {
+    const res = NextResponse.redirect(`${baseUrl}/?auth_error=${errorCode}`, 302);
+    res.cookies.set("linkzivo_oidc_flow", "", {
       httpOnly: true,
       secure: isSecureCookie(),
       sameSite: "lax",
@@ -32,7 +31,7 @@ export async function GET(request: NextRequest) {
       maxAge: 0,
       expires: new Date(0),
     });
-    return NextResponse.redirect(`${baseUrl}/?auth_error=${errorCode}`, 302);
+    return res;
   };
 
   // 1. Tratamento de cancelamento ou erro do Google
@@ -85,11 +84,11 @@ export async function GET(request: NextRequest) {
     return redirectWithError("identity_resolution_failed");
   }
 
-  // 7. Criação da sessão segura no PostgreSQL e emissão do cookie assinado
-  await createSessionCookie(resolution.user);
+  // 7. Redirecionamento seguro para o Dashboard com criação da sessão e limpeza do cookie de fluxo
+  const response = NextResponse.redirect(`${baseUrl}/dashboard`, 302);
+  await createSessionCookie(resolution.user, response);
 
-  // 8. Limpeza definitiva do cookie de fluxo
-  cookieStore.set("linkzivo_oidc_flow", "", {
+  response.cookies.set("linkzivo_oidc_flow", "", {
     httpOnly: true,
     secure: isSecureCookie(),
     sameSite: "lax",
@@ -98,6 +97,5 @@ export async function GET(request: NextRequest) {
     expires: new Date(0),
   });
 
-  // 9. Redirecionamento seguro para o Dashboard
-  return NextResponse.redirect(`${baseUrl}/dashboard`, 302);
+  return response;
 }

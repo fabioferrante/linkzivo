@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import type { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
@@ -236,14 +237,44 @@ export async function registerUser(name: string, email: string, password: string
  * Valida a assinatura HMAC, a existência e status do usuário e a integridade do seu workspace exclusivo 1:1.
  */
 export async function getSession(
-  tokenOrReq?: string | { cookies?: { get: (name: string) => { value?: string } | undefined } }
+  tokenOrReq?:
+    | string
+    | {
+        cookies?: { get: (name: string) => { value?: string } | undefined };
+        headers?: { get: (name: string) => string | null };
+      }
+    | Request
+    | null
 ): Promise<SessionUser | null> {
   let sessionToken: string | undefined;
 
   if (typeof tokenOrReq === "string") {
     sessionToken = tokenOrReq;
-  } else if (tokenOrReq && "cookies" in tokenOrReq && typeof tokenOrReq.cookies?.get === "function") {
+  } else if (
+    tokenOrReq &&
+    typeof tokenOrReq === "object" &&
+    "cookies" in tokenOrReq &&
+    tokenOrReq.cookies &&
+    typeof tokenOrReq.cookies.get === "function"
+  ) {
     sessionToken = tokenOrReq.cookies.get(SESSION_COOKIE_NAME)?.value;
+  }
+
+  if (
+    !sessionToken &&
+    tokenOrReq &&
+    typeof tokenOrReq === "object" &&
+    "headers" in tokenOrReq &&
+    tokenOrReq.headers &&
+    typeof tokenOrReq.headers.get === "function"
+  ) {
+    const rawCookie = tokenOrReq.headers.get("cookie") || tokenOrReq.headers.get("Cookie");
+    if (rawCookie) {
+      const match = rawCookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE_NAME}=([^;]*)`));
+      if (match) {
+        sessionToken = decodeURIComponent(match[1]);
+      }
+    }
   }
 
   if (!sessionToken) {
@@ -398,9 +429,7 @@ export function isSecureCookie(): boolean {
  * Define o cookie de sessão seguro e assinado criptograficamente (HttpOnly, SameSite=Lax, Secure em HTTPS/produção).
  * Persiste a sessão individualmente no PostgreSQL com validade de 30 dias.
  */
-export async function createSessionCookie(user: SessionUser) {
-  const cookieStore = await cookies();
-
+export async function createSessionCookie(user: SessionUser, response?: NextResponse) {
   // 1. Cria a sessão individual persistida no PostgreSQL
   const session = await db.session.create({
     data: {
@@ -414,13 +443,24 @@ export async function createSessionCookie(user: SessionUser) {
   const rawPayload = `${session.id}:${user.id}:${user.workspaceId}`;
   const signedToken = signSessionToken(rawPayload);
 
-  cookieStore.set(SESSION_COOKIE_NAME, signedToken, {
+  const cookieOptions = {
     httpOnly: true,
     secure: isSecureCookie(),
-    sameSite: "lax",
+    sameSite: "lax" as const,
     path: "/",
     maxAge: 60 * 60 * 24 * 30, // 30 dias
-  });
+  };
+
+  if (response && response.cookies && typeof response.cookies.set === "function") {
+    response.cookies.set(SESSION_COOKIE_NAME, signedToken, cookieOptions);
+  } else {
+    try {
+      const cookieStore = await cookies();
+      cookieStore.set(SESSION_COOKIE_NAME, signedToken, cookieOptions);
+    } catch {
+      // Fallback gracioso se chamado fora do request context de Server Components
+    }
+  }
 }
 
 /**
