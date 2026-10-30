@@ -34,6 +34,63 @@ if (process.env.NODE_ENV === "production") {
   getValidatedAuthSalt();
 }
 
+/**
+ * Constrói com segurança uma URL de redirecionamento interno garantindo que o cabeçalho
+ * Location aponte exclusivamente para a origem pública canônica, sem expor portas ou hosts
+ * internos de containers (ex: localhost:8080 ou 127.0.0.1).
+ */
+function getPublicInternalRedirectUrl(path: string, request: NextRequest): URL {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  // 1. Tenta utilizar a URL base canônica configurada
+  if (rawAppUrl) {
+    try {
+      const parsed = new URL(rawAppUrl);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        const isLocalHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "0.0.0.0";
+        if (process.env.NODE_ENV !== "production" || !isLocalHost) {
+          return new URL(cleanPath, parsed.origin);
+        }
+      }
+    } catch {
+      // Ignora erro de parsing e segue para fallback
+    }
+  }
+
+  // 2. Fallback por cabeçalhos padrão de proxy reverso (Railway / Cloudflare / Nginx)
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() || "https";
+
+  if (forwardedHost) {
+    const isLocalHost = forwardedHost.startsWith("localhost") || forwardedHost.startsWith("127.0.0.1") || forwardedHost.startsWith("0.0.0.0");
+    if (process.env.NODE_ENV !== "production" || !isLocalHost) {
+      try {
+        return new URL(cleanPath, `${forwardedProto}://${forwardedHost}`);
+      } catch {
+        // Fallback
+      }
+    }
+  }
+
+  // 3. Fallback de emergência baseado na requisição
+  try {
+    const origin = request.nextUrl?.origin || new URL(request.url).origin;
+    const parsedOrigin = new URL(origin);
+
+    if (process.env.NODE_ENV === "production") {
+      const hostHeader = request.headers.get("host")?.split(":")[0]?.trim();
+      if (hostHeader && hostHeader !== "localhost" && hostHeader !== "127.0.0.1") {
+        return new URL(cleanPath, `https://${hostHeader}`);
+      }
+    }
+
+    return new URL(cleanPath, origin);
+  } catch {
+    return new URL(cleanPath, request.url);
+  }
+}
+
 export const dynamic = "force-dynamic";
 
 
@@ -69,17 +126,17 @@ export async function GET(
   });
 
   if (!link) {
-    return NextResponse.redirect(new URL("/not-found-link", request.url), 302);
+    return NextResponse.redirect(getPublicInternalRedirectUrl("/not-found-link", request), 302);
   }
 
   // Se o Smart Link estiver pausado, retorna resposta controlada sem redirecionar e sem registrar métricas (Requisito 7)
   if (link.status === "PAUSED") {
-    return NextResponse.redirect(new URL("/paused-link", request.url), 302);
+    return NextResponse.redirect(getPublicInternalRedirectUrl("/paused-link", request), 302);
   }
 
   if (link.status !== "ACTIVE") {
     // Redireciona para página de erro 404 / não encontrado
-    return NextResponse.redirect(new URL("/not-found-link", request.url), 302);
+    return NextResponse.redirect(getPublicInternalRedirectUrl("/not-found-link", request), 302);
   }
 
   // Checagem de expiração se configurada
@@ -95,7 +152,7 @@ export async function GET(
     if (link.fallbackUrl) {
       return NextResponse.redirect(link.fallbackUrl, 302);
     }
-    return NextResponse.redirect(new URL("/expired-link", request.url), 302);
+    return NextResponse.redirect(getPublicInternalRedirectUrl("/expired-link", request), 302);
   }
 
   // 2. Determinação da URL de destino base (considera regras de smart redirect se houver)
