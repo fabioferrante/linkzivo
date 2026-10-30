@@ -2,16 +2,16 @@
 
 **Data da última auditoria:** 30 de Outubro de 2026  
 **Ambiente de Produção Homologado:** [https://linkzivo-production.up.railway.app](https://linkzivo-production.up.railway.app)  
-**Deployment Ativo:** `35ff923d-4c67-4456-93e6-115449c559ea` (Commit `ab145dc` / `97d9f76`)  
+**Deployment Ativo:** `9d2e8f07-4ed9-4c68-a31a-fa87d7e764b0` (Commit `71640a6` / `c9e8811`)  
 **Status Operacional:** ● Online (Saudável)
 
 ---
 
 ## 1. Visão Geral de Maturidade do Produto
 
-- **Motor de Negócio & Backend:** **~99.5% concluído**
-- **Front-end & Painel do Usuário:** **~98% concluído**
-- **Testes Automatizados (Baterias Ativas):** **~587 asserções automatizadas com 100% de aprovação**
+- **Motor de Negócio & Backend:** **~99.8% concluído**
+- **Front-end & Painel do Usuário:** **~99% concluído**
+- **Testes Automatizados (Baterias Ativas):** **~703 asserções automatizadas com 100% de aprovação**
 
 ---
 
@@ -30,7 +30,7 @@
 | **9** | **Produtos, Ofertas e Campanhas**| Completo | 15 testes de ciclo de vida em prod | Ativo na API e Dashboard | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
 | **10**| **Conversões, Postbacks & Extrato** | Completo | 71 postbacks + 46 locais + 54 em produção (`test_online_production_conversions.js`) | Extrato e Auditoria Ativos com Sanitização e Anti-IDOR | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
 | **11**| **Canais de Divulgação** | Completo | 42 locais + 35 em produção (`test_online_production_channels.js`) | Gerenciador Completo, Vínculo com Smart Links e Trava de Exclusão Ativa | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
-| **12**| **Google OIDC** | Completo | 64 testes (`test_oidc_flow.js`) | 503 Controlado (Falta segredos) | **TESTADO LOCALMENTE / AGUARDA CREDENCIAIS REAIS** |
+| **12**| **Google OIDC** | Completo | 91 testes locais (64 fluxo + 27 rotas) + 25 em produção (`test_online_production_oidc.js`) | PKCE, State, Nonce, Validação Real com Servidores Google e Anti-Takeover | **CONCLUÍDO E HOMOLOGADO EM PRODUÇÃO** |
 
 ---
 
@@ -89,9 +89,22 @@
   - `execution/test_channels.js`: 42/42 asserções aprovadas localmente.
   - `execution/test_online_production_channels.js`: 35/35 asserções aprovadas ao vivo em produção no deployment `35ff923d-4c67-4456-93e6-115449c559ea`.
 
+### Etapa 5 — Google OIDC: Homologação e Defesas em Produção (Commits `71640a6` e `c9e8811`)
+- **Implementação:**
+  - **Fluxo Criptográfico Completo:** PKCE S256 (`code_challenge` / `code_verifier`), `state` e `nonce` com 256 bits de entropia gerados com `crypto.randomBytes(32)` e persistidos atomicamente no modelo `OidcChallenge` com TTL de 5 minutos.
+  - **Eliminação de Replay e DoS:** Consumo atômico com exclusão no banco em transação. Tentativas com `state` forjado NÃO deletam o desafio legítimo (proteção contra DoS).
+  - **Validação Criptográfica de Tokens:** Assinatura RS256, emissor (`accounts.google.com`), audiência (`client_id`), `azp`, `nonce` e `email_verified` validados com a biblioteca `jose` contra o JWKS oficial do Google.
+  - **Prevenção de Pre-Account Takeover:** E-mails existentes com senha local NÃO sofrem vinculação cega; o sistema rejeita com HTTP 409 (`account_exists_login_required`), forçando o login legítimo por senha.
+  - **Vinculação In-App (`intent=connect`):** Suporte à vinculação voluntária para usuários com sessão ativa (`targetUserId`), com bloqueio estrito contra roubo de contas pertencentes a terceiros.
+  - **Homologação em Produção com o Google:** Confirmação de que a Redirect URI (`https://linkzivo-production.up.railway.app/api/auth/google/callback`) está aceita e autorizada pelo Google Identity Platform (retorno HTTP 200 OK sem `redirect_uri_mismatch`).
+- **Validação Automatizada:**
+  - `execution/test_oidc_flow.js`: 64/64 asserções locais aprovadas no banco isolado.
+  - `execution/test_oidc_http_routes.js`: 27/27 asserções locais de handlers HTTP aprovadas.
+  - `execution/test_online_production_oidc.js`: 25/25 asserções aprovadas ao vivo em produção no deployment `9d2e8f07-4ed9-4c68-a31a-fa87d7e764b0`.
+
 ---
 
 ## 4. Backlog Restante para Conclusão Definitiva
 
-1. **Credenciais do Google Cloud Console:** Inserção de `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` para homologação ao vivo do OIDC.
-2. **Gateway de Pagamento do Plano CREATOR:** Integração do checkout de assinatura com webhook de upgrade de plano.
+1. **Gateway de Pagamento do Plano CREATOR (Etapa 6):** Integração do checkout de assinatura com webhook de upgrade de plano.
+
