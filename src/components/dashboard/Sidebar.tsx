@@ -9,13 +9,14 @@ import {
   Layers,
   ShoppingBag,
   BarChart3,
+  DollarSign,
   LogOut,
   ChevronRight,
   ChevronLeft,
   MoreVertical,
 } from "lucide-react";
 
-export type DashboardTab = "overview" | "links" | "campaigns" | "products" | "analytics";
+export type DashboardTab = "overview" | "links" | "campaigns" | "products" | "analytics" | "conversions";
 
 interface SidebarProps {
   activeTab: DashboardTab;
@@ -78,6 +79,12 @@ export function Sidebar({
       id: "analytics" as const,
       label: "Estatísticas & Analytics",
       icon: BarChart3,
+      badge: null,
+    },
+    {
+      id: "conversions" as const,
+      label: "Conversões",
+      icon: DollarSign,
       badge: null,
     },
   ];

@@ -22,7 +22,7 @@ import {
 import { formatBrDateTime } from "@/lib/date";
 
 // Componentes Modernos do Google Stitch
-import { Sidebar } from "@/components/dashboard/Sidebar";
+import { Sidebar, DashboardTab } from "@/components/dashboard/Sidebar";
 import { Header } from "@/components/dashboard/Header";
 import { OverviewView } from "@/components/dashboard/OverviewView";
 import { LinksListView, SmartLinkItem } from "@/components/dashboard/LinksListView";
@@ -30,6 +30,7 @@ import { LinkEditorView } from "@/components/dashboard/LinkEditorView";
 import { CampaignsView, CampaignItem } from "@/components/dashboard/CampaignsView";
 import { ProductsView, ProductItem } from "@/components/dashboard/ProductsView";
 import { AnalyticsView } from "@/components/dashboard/AnalyticsView";
+import { ConversionsView } from "@/components/dashboard/ConversionsView";
 import { QrCodeModal } from "@/components/dashboard/qr-code-modal";
 
 export interface LinkHistoryItem {
@@ -95,14 +96,13 @@ function DashboardContent() {
     workspacePlan: string;
   } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "links" | "campaigns" | "products" | "analytics"
-  >(() => {
+  const [activeTab, setActiveTab] = useState<DashboardTab>(() => {
     if (
       tabParam === "campaigns" ||
       tabParam === "analytics" ||
       tabParam === "links" ||
-      tabParam === "products"
+      tabParam === "products" ||
+      tabParam === "conversions"
     ) {
       return tabParam;
     }
@@ -119,6 +119,7 @@ function DashboardContent() {
       tabParam === "analytics" ||
       tabParam === "links" ||
       tabParam === "products" ||
+      tabParam === "conversions" ||
       tabParam === "overview"
     ) {
       setActiveTab(tabParam);
@@ -127,9 +128,7 @@ function DashboardContent() {
     }
   }, [tabParam]);
 
-  const handleTabChange = (
-    newTab: "overview" | "links" | "campaigns" | "products" | "analytics"
-  ) => {
+  const handleTabChange = (newTab: DashboardTab) => {
     setActiveTab(newTab);
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
@@ -911,6 +910,10 @@ function DashboardContent() {
               onPeriodChange={handlePeriodChange}
               loading={analyticsLoading}
             />
+          )}
+
+          {activeTab === "conversions" && (
+            <ConversionsView shortDomain={domain} />
           )}
         </main>
       </div>
