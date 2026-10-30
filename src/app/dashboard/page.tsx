@@ -30,6 +30,7 @@ import { LinkEditorView } from "@/components/dashboard/LinkEditorView";
 import { CampaignsView, CampaignItem } from "@/components/dashboard/CampaignsView";
 import { ProductsView, ProductItem } from "@/components/dashboard/ProductsView";
 import { AnalyticsView } from "@/components/dashboard/AnalyticsView";
+import { QrCodeModal } from "@/components/dashboard/qr-code-modal";
 
 export interface LinkHistoryItem {
   id: string;
@@ -1024,53 +1025,19 @@ function DashboardContent() {
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 4: QR CODE PREVIEW E DOWNLOAD RÁPIDO */}
+      {/* MODAL 4: QR CODE AVANÇADO E PERSONALIZAÇÃO */}
       {/* ======================================================== */}
       {qrModalLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="relative w-full max-w-sm bg-[#0F131F] border border-white/10 rounded-2xl shadow-2xl p-6 text-center space-y-4">
-            <button
-              onClick={() => setQrModalLink(null)}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="text-sm font-bold text-white">QR Code Dinâmico</div>
-            <div className="text-xs text-purple-300 font-mono truncate">
-              {domain}/{qrModalLink.slug}
-            </div>
-
-            <div className="p-4 rounded-xl bg-[#090C14] border border-white/[0.06] inline-block shadow-inner">
-              {qrDataUrl ? (
-                <img src={qrDataUrl} alt="QR Code" className="w-56 h-56 rounded-lg object-contain mx-auto" />
-              ) : (
-                <div className="w-56 h-56 flex items-center justify-center text-slate-500 font-mono text-xs">
-                  Renderizando...
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 pt-2">
-              <a
-                href={qrDataUrl || "#"}
-                download={`qrcode_${qrModalLink.slug}.png`}
-                className="btn-stitch-primary text-xs py-2 justify-center"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Baixar PNG</span>
-              </a>
-              <a
-                href={`/api/links/${qrModalLink.id}/qr?format=svg`}
-                download={`qrcode_${qrModalLink.slug}.svg`}
-                className="btn-stitch-secondary text-xs py-2 justify-center"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Baixar SVG</span>
-              </a>
-            </div>
-          </div>
-        </div>
+        <QrCodeModal
+          link={qrModalLink}
+          domain={domain}
+          onClose={() => setQrModalLink(null)}
+          onSaved={(updatedLink) => {
+            setLinks((prev) =>
+              prev.map((l) => (l.id === updatedLink.id ? { ...l, ...updatedLink } : l))
+            );
+          }}
+        />
       )}
 
       {/* ======================================================== */}

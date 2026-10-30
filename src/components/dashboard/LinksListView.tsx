@@ -41,6 +41,14 @@ export interface SmartLinkItem {
   campaign?: { id: string; name: string } | null;
   product?: { id: string; name: string } | null;
   offer?: { id: string; name: string } | null;
+  qrCode?: {
+    id: string;
+    style: string;
+    fgColor: string;
+    bgColor: string;
+    logoUrl?: string | null;
+    scanCount: number;
+  } | null;
 }
 
 interface LinksListViewProps {
